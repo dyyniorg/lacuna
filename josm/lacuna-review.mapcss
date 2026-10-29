@@ -1,0 +1,17 @@
+/* Review highlighter style for JOSM & Lacuna.
+ *
+ * Highlights every item from the review packages that was not checked yet.
+ * Delete the `lacuna:review` tag on an object once it is reviewed, and the
+ * highlight goes away. Remember to remove all remaining `lacuna:*` tags 
+ * before uploading the changes to OSM!
+ */
+
+node["lacuna:review"],
+way["lacuna:review"],
+relation["lacuna:review"] {
+    color: #1500FF;
+    fill-color: #1500FF;
+    fill-opacity: 0.3;
+    width: 3;
+}
+
