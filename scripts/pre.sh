@@ -2,7 +2,7 @@
 
 
 cargo fmt --all
-cargo check
+cargo clippy
 [[ "$1" == "t" ]] && cargo test
 
 exit 0
