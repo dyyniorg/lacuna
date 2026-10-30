@@ -1,6 +1,6 @@
 //! Address adjustment after the first manual review of one grid cell.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 
 use roxmltree::Document;
@@ -40,7 +40,7 @@ pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Resu
 
     let kept_refs: HashSet<String> = entries
         .iter()
-        .filter_map(|entry| tag_value(&entry.tags, "lacuna:ref"))
+        .filter_map(|tags| tag_value(tags, "lacuna:ref"))
         .collect();
 
     let official = load(&cache, municipality, "ryhti_buildings.json")?;
@@ -73,9 +73,9 @@ pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Resu
     // recomputes the ones that are not placed there anymore
     let placed: HashSet<String> = entries
         .iter()
-        .filter_map(|entry| {
-            let number = tag_value(&entry.tags, "addr:housenumber")?;
-            let street = tag_value(&entry.tags, "addr:street").unwrap_or_default();
+        .filter_map(|tags| {
+            let number = tag_value(tags, "addr:housenumber")?;
+            let street = tag_value(tags, "addr:street").unwrap_or_default();
             Some(diff::address_key(&number, &street))
         })
         .collect();
@@ -87,30 +87,10 @@ pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Resu
         existing_only: true,
     };
 
-    let (result, _counts, fixes) = diff::compare(&official, &nls, &osm, &addresses, &parcels, &overrides, municipality);
+    let (result, _counts, fixes) = diff::compare(&official, &nls, &osm, &addresses, &parcels, &overrides);
 
-    let osm_by_id: HashMap<&str, &Value> = osm
-        .get("features")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|feature| feature.get("id").and_then(Value::as_str).map(|id| (id, feature)))
-        .collect();
-
-    let owner_points: HashMap<&str, (f64, f64)> = result
-        .get("features")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|feature| {
-            let properties = &feature["properties"];
-            let id = properties
-                .get("permanent_building_identifier")
-                .and_then(Value::as_str)?;
-            let point = properties.get("official_point")?.as_array()?;
-            Some((id, (point[0].as_f64()?, point[1].as_f64()?)))
-        })
-        .collect();
+    let osm_by_id = super::features_by_id(&osm);
+    let owner_points = super::owner_points(&result);
 
     let mut address_ways: Vec<ExistingWay> = Vec::new();
 
@@ -123,10 +103,10 @@ pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Resu
             .owner
             .as_ref()
             .and_then(|owner| owner_points.get(owner.as_str()))
-            .map_or(false, |point| packages::inside_bbox(*point, &target.base_bbox));
+            .is_some_and(|point| packages::inside_bbox(*point, &target.base_bbox));
 
         let way_in_cell =
-            packages::feature_center(feature).map_or(false, |center| packages::inside_bbox(center, &target.base_bbox));
+            packages::feature_center(feature).is_some_and(|center| packages::inside_bbox(center, &target.base_bbox));
 
         if !owner_in_cell && !way_in_cell {
             continue;
@@ -150,14 +130,10 @@ pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Resu
 fn load(cache: &Cache, municipality: &Municipality, name: &str) -> Result<Value, ReviewError> {
     let path = cache.municipality_file(municipality, name);
 
-    cache.load_json(&path)?.ok_or_else(|| ReviewError::MissingInput(path))
+    cache.load_json(&path)?.ok_or(ReviewError::MissingInput(path))
 }
 
-struct OsmEntry {
-    tags: Vec<(String, String)>,
-}
-
-fn parse_buildings_osm(path: &Path) -> Result<Vec<OsmEntry>, ReviewError> {
+fn parse_buildings_osm(path: &Path) -> Result<Vec<Vec<(String, String)>>, ReviewError> {
     let text = std::fs::read_to_string(path)?;
 
     let document = Document::parse(&text)
@@ -171,11 +147,9 @@ fn parse_buildings_osm(path: &Path) -> Result<Vec<OsmEntry>, ReviewError> {
     {
         let tags = tags_of(element);
 
-        if tags.is_empty() {
-            continue;
+        if !tags.is_empty() {
+            entries.push(tags);
         }
-
-        entries.push(OsmEntry { tags });
     }
 
     Ok(entries)

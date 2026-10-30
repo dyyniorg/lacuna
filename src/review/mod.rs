@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 
 use crate::config::Municipality;
 use crate::ingest::{IngestData, IngestError};
+use crate::utils;
 
 pub use adjust::adjust;
 pub use diff::Counts;
@@ -81,13 +82,6 @@ impl From<IngestError> for ReviewError {
     }
 }
 
-/// Options for a full review run.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ReviewOptions {
-    /// Replace existing review output after explicit user confirmation.
-    pub overwrite: bool,
-}
-
 /// Result of a full review run.
 #[derive(Debug)]
 pub struct ReviewOutput {
@@ -97,32 +91,36 @@ pub struct ReviewOutput {
     pub round_id: String,
 }
 
-/// Returns existing review output paths that require overwrite confirmation.
-pub fn existing_outputs(municipality: &Municipality, cache_dir: &Path) -> Result<Vec<PathBuf>, ReviewError> {
-    let dir = cache_dir.join(municipality.slug());
+/// Returns the subdirectories of one review directory.
+fn review_dirs(dir: &Path) -> Result<Vec<PathBuf>, ReviewError> {
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
 
     let mut paths = Vec::new();
 
-    for name in ["review_state.json", "buildings.osm", "addresses.osm"]
-        .into_iter()
-        .chain(LEGACY_GEOJSON)
-    {
-        let path = dir.join(name);
-        if path.exists() {
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
             paths.push(path);
         }
     }
 
-    let review_dir = dir.join("review");
+    Ok(paths)
+}
 
-    if review_dir.is_dir() {
-        for entry in fs::read_dir(&review_dir)? {
-            let path = entry?.path();
-            if path.is_dir() {
-                paths.push(path);
-            }
-        }
-    }
+/// Returns existing review output paths that require overwrite confirmation.
+pub fn existing_outputs(municipality: &Municipality, cache_dir: &Path) -> Result<Vec<PathBuf>, ReviewError> {
+    let dir = cache_dir.join(municipality.slug());
+
+    let mut paths: Vec<PathBuf> = ["review_state.json", "buildings.osm", "addresses.osm"]
+        .into_iter()
+        .chain(LEGACY_GEOJSON)
+        .map(|name| dir.join(name))
+        .filter(|path| path.exists())
+        .collect();
+
+    paths.extend(review_dirs(&dir.join("review"))?);
 
     Ok(paths)
 }
@@ -130,25 +128,36 @@ pub fn existing_outputs(municipality: &Municipality, cache_dir: &Path) -> Result
 /// Lists the grid cells that have review packages.
 pub fn review_cells(municipality: &Municipality, cache_dir: &Path) -> Result<Vec<String>, ReviewError> {
     let dir = cache_dir.join(municipality.slug()).join("review");
-    if !dir.is_dir() {
-        return Ok(Vec::new());
-    }
 
-    let mut cells = Vec::new();
-
-    for entry in fs::read_dir(&dir)? {
-        let path = entry?.path();
-
-        if path.is_dir() {
-            if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-                cells.push(name.to_string());
-            }
-        }
-    }
+    let mut cells: Vec<String> = review_dirs(&dir)?
+        .iter()
+        .filter_map(|path| path.file_name().and_then(|name| name.to_str()).map(str::to_string))
+        .collect();
 
     cells.sort();
 
     Ok(cells)
+}
+
+/// Indexes GeoJSON features by their `id`.
+pub(super) fn features_by_id(value: &Value) -> HashMap<&str, &Value> {
+    utils::features(value)
+        .iter()
+        .filter_map(|feature| feature.get("id").and_then(Value::as_str).map(|id| (id, feature)))
+        .collect()
+}
+
+/// Maps official building ids to their original registry points.
+pub(super) fn owner_points(result: &Value) -> HashMap<&str, (f64, f64)> {
+    utils::features(result)
+        .iter()
+        .filter_map(|feature| {
+            let properties = &feature["properties"];
+            let id = properties.get("permanent_building_identifier")?.as_str()?;
+            let point = crate::ingest::point_of_coordinates(properties.get("official_point")?)?;
+            Some((id, point))
+        })
+        .collect()
 }
 
 /// Runs the comparison and writes all review outputs for one municipality.
@@ -156,10 +165,10 @@ pub fn run(
     data: &IngestData,
     municipality: &Municipality,
     cache_dir: &Path,
-    options: &ReviewOptions,
+    overwrite: bool,
 ) -> Result<ReviewOutput, ReviewError> {
     let existing = existing_outputs(municipality, cache_dir)?;
-    if !existing.is_empty() && !options.overwrite {
+    if !existing.is_empty() && !overwrite {
         return Err(ReviewError::ExistingOutput(existing));
     }
 
@@ -170,14 +179,13 @@ pub fn run(
         &data.addresses,
         &data.parcels,
         &diff::Overrides::default(),
-        municipality,
     );
 
     let out_dir = cache_dir.join(municipality.slug());
 
     osm_io::ensure_dir(&out_dir)?;
 
-    if options.overwrite {
+    if overwrite {
         let review_dir = out_dir.join("review");
         if review_dir.exists() {
             fs::remove_dir_all(&review_dir)?;
@@ -192,51 +200,25 @@ pub fn run(
         }
     }
 
-    let by_id: HashMap<&str, &Value> = data
-        .osm
-        .get("features")
-        .and_then(Value::as_array)
-        .map(|features| {
-            features
-                .iter()
-                .filter_map(|feature| feature.get("id").and_then(Value::as_str).map(|id| (id, feature)))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let owner_points: HashMap<&str, (f64, f64)> = result
-        .get("features")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|feature| {
-            let properties = &feature["properties"];
-            let id = properties
-                .get("permanent_building_identifier")
-                .and_then(Value::as_str)?;
-            let point = properties.get("official_point")?.as_array()?;
-            Some((id, (point[0].as_f64()?, point[1].as_f64()?)))
-        })
-        .collect();
+    let by_id = features_by_id(&data.osm);
+    let owner_points = owner_points(&result);
 
     let address_missing_features: Vec<Value> = address_fixes
         .iter()
         .filter_map(|fix| {
-            by_id.get(fix.way_id.as_str()).map(|feature| {
-                let mut copy = (*feature).clone();
-                copy["properties"]["official_address"] = json!({
-                    "housenumber": fix.housenumber,
-                    "street": fix.street,
-                    "postcode": fix.postcode,
-                    "city": fix.city,
-                });
-                if let Some(owner) = fix.owner.as_ref() {
-                    if let Some(point) = owner_points.get(owner.as_str()) {
-                        copy["properties"]["owner_point"] = json!([point.0, point.1]);
-                    }
-                }
-                copy
-            })
+            let mut copy = (*by_id.get(fix.way_id.as_str())?).clone();
+            copy["properties"]["official_address"] = json!({
+                "housenumber": fix.housenumber,
+                "street": fix.street,
+                "postcode": fix.postcode,
+                "city": fix.city,
+            });
+            if let Some(owner) = fix.owner.as_ref()
+                && let Some(point) = owner_points.get(owner.as_str())
+            {
+                copy["properties"]["owner_point"] = json!([point.0, point.1]);
+            }
+            Some(copy)
         })
         .collect();
 
@@ -247,23 +229,11 @@ pub fn run(
 
     osm_io::save_existing_osm(&out_dir.join("addresses.osm"), &address_ways)?;
 
-    let missing_features: Vec<Value> = result
-        .get("features")
-        .and_then(Value::as_array)
-        .map(|features| {
-            features
-                .iter()
-                .filter(|feature| {
-                    feature
-                        .get("properties")
-                        .and_then(|properties| properties.get("match_state"))
-                        .and_then(Value::as_str)
-                        == Some("missing")
-                })
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default();
+    let missing_features: Vec<Value> = utils::features(&result)
+        .iter()
+        .filter(|feature| feature["properties"]["match_state"] == "missing")
+        .cloned()
+        .collect();
 
     osm_io::save_osm(&out_dir.join("buildings.osm"), &missing_features)?;
 
@@ -275,7 +245,7 @@ pub fn run(
         &data.bbox,
     )?;
 
-    let round_id = state::now_id();
+    let round_id = utils::now_id();
     let missing_by_cell = cells
         .iter()
         .filter(|cell| !cell.missing_refs.is_empty())
@@ -300,12 +270,11 @@ pub fn run(
 mod tests {
     use std::collections::{BTreeMap, HashSet};
     use std::fs;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     use serde_json::{Value, json};
 
     use crate::config::Municipality;
+    use crate::utils::test_support::TempDir;
 
     use super::diff::{self, Overrides};
     use super::packages;
@@ -315,25 +284,6 @@ mod tests {
         code: "291",
         name: "Kuhmoinen",
     };
-
-    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    fn temp_dir(label: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "lacuna-review-test-{label}-{}-{}",
-            std::process::id(),
-            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("failed to create test directory");
-
-        path
-    }
-
-    fn cleanup(path: &PathBuf) {
-        let _ = fs::remove_dir_all(path);
-    }
 
     fn feature(geometry: Value, properties: Value) -> Value {
         json!({
@@ -449,7 +399,7 @@ mod tests {
         parcels: &Value,
         overrides: &Overrides,
     ) -> (Value, diff::Counts, Vec<diff::AddressFix>) {
-        diff::compare(official, nls, osm, addresses, parcels, overrides, &MUNICIPALITY)
+        diff::compare(official, nls, osm, addresses, parcels, overrides)
     }
 
     #[test]
@@ -585,7 +535,7 @@ mod tests {
 
     #[test]
     fn packages_use_owner_point_and_half_open_cells() {
-        let dir = temp_dir("packages");
+        let dir = TempDir::new("review", "packages");
         let review_dir = dir.join("review");
         let bbox = ingest::BBox {
             min_lon: 24.98,
@@ -660,13 +610,11 @@ mod tests {
         let addresses = fs::read_to_string(cell_dir.join("addresses.osm")).unwrap();
         assert!(addresses.contains("way id=\"100\""));
         assert!(addresses.contains("lacuna:review"));
-
-        cleanup(&dir);
     }
 
     #[test]
     fn run_writes_osm_outputs_and_minimal_state() {
-        let dir = temp_dir("run");
+        let dir = TempDir::new("review", "run");
         let data_dir = dir.join(MUNICIPALITY.slug());
         fs::create_dir_all(&data_dir).unwrap();
 
@@ -682,7 +630,7 @@ mod tests {
             bbox,
         };
 
-        let output = super::run(&data, &MUNICIPALITY, &dir, &super::ReviewOptions { overwrite: false }).unwrap();
+        let output = super::run(&data, &MUNICIPALITY, &dir, false).unwrap();
 
         assert!(!output.round_id.is_empty());
         assert_eq!(output.cells.len(), 1);
@@ -731,13 +679,11 @@ mod tests {
         assert_eq!(adjust.kept, 1);
         assert_eq!(adjust.removed, 0);
         assert_eq!(adjust.address_fixes, 0);
-
-        cleanup(&dir);
     }
 
     #[test]
     fn adjust_moves_address_to_existing_way_and_keeps_buildings_file() {
-        let dir = temp_dir("adjust");
+        let dir = TempDir::new("review", "adjust");
         let data_dir = dir.join(MUNICIPALITY.slug());
         fs::create_dir_all(&data_dir).unwrap();
 
@@ -792,8 +738,6 @@ mod tests {
         assert!(addresses_osm.contains("way id=\"200\""));
         assert!(addresses_osm.contains("addr:housenumber\" v=\"2\""));
         assert_eq!(fs::read_to_string(&buildings_path).unwrap(), kept_osm);
-
-        cleanup(&dir);
     }
 
     #[test]

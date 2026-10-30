@@ -19,7 +19,7 @@ pub fn parcels(
     bbox: &BBox,
     reporter: &Reporter,
 ) -> Result<Value, IngestError> {
-    reporter.report(Stage::Parcels, "Downloading land parcels", Some(0));
+    reporter.report(Stage::Parcels, "Downloading land parcels");
 
     let (min_x, min_y, max_x, max_y) = geo::bbox_in_3067(bbox)?;
     let mut features: Vec<Value> = Vec::new();
@@ -35,16 +35,14 @@ pub fn parcels(
         let page_features = page
             .get("features")
             .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+            .ok_or_else(|| IngestError::InvalidData("land parcel WFS response has no features".to_string()))?;
         let page_len = page_features.len();
 
-        features.extend(page_features);
+        features.extend(page_features.iter().cloned());
 
         reporter.report(
             Stage::Parcels,
             format!("Parcel page of {page_len} features, {} in total", features.len()),
-            None,
         );
 
         start += page_len;
@@ -54,11 +52,7 @@ pub fn parcels(
         }
     }
 
-    reporter.report(
-        Stage::Parcels,
-        format!("Downloaded {} parcels", features.len()),
-        Some(100),
-    );
+    reporter.report(Stage::Parcels, format!("Downloaded {} parcels", features.len()));
 
     Ok(json!({
         "type": "FeatureCollection",

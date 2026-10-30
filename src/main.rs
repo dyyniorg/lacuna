@@ -6,8 +6,6 @@ mod web;
 
 use std::process;
 
-use serde_json::Value;
-
 use config::Municipality;
 use utils::Parameters;
 
@@ -41,46 +39,31 @@ fn main() {
                 .unwrap_or_else(|error| fatal_exit("Failed to inspect review output", error));
 
             if !existing.is_empty() {
-                eprintln!("Review output already exists.");
-                eprintln!("Re-run with --overwrite after confirming that manual review edits will be lost.");
-                process::exit(1);
+                fail_existing_output();
             }
         }
 
-        let client = cli_client(&params);
-        let data = client
-            .fetch_all(municipality)
-            .unwrap_or_else(|error| fatal_exit("Data ingest failed", error));
-        let options = review::ReviewOptions {
-            overwrite: params.overwrite(),
-        };
+        let data = ingest_data(&params, municipality);
 
-        match review::run(&data, municipality, params.cache_dir(), &options) {
+        match review::run(&data, municipality, params.cache_dir(), params.overwrite()) {
             Ok(output) => {
                 print_review_output(&output);
                 return;
             }
-            Err(review::ReviewError::ExistingOutput(_)) => {
-                eprintln!("Review output already exists.");
-                eprintln!("Re-run with --overwrite after confirming that manual review edits will be lost.");
-                process::exit(1);
-            }
+            Err(review::ReviewError::ExistingOutput(_)) => fail_existing_output(),
             Err(error) => fatal_exit("Review failed", error),
         }
     }
 
     if params.fetch() {
         let municipality = selected_municipality(&params);
-        let client = cli_client(&params);
-        let data = client
-            .fetch_all(municipality)
-            .unwrap_or_else(|error| fatal_exit("Data ingest failed", error));
+        let data = ingest_data(&params, municipality);
 
-        println!("Official buildings: {}", feature_count(&data.official));
-        println!("Official addresses: {}", feature_count(&data.addresses));
-        println!("NLS footprints: {}", feature_count(&data.nls));
-        println!("Land parcels: {}", feature_count(&data.parcels));
-        println!("OSM buildings: {}", feature_count(&data.osm));
+        println!("Official buildings: {}", utils::features(&data.official).len());
+        println!("Official addresses: {}", utils::features(&data.addresses).len());
+        println!("NLS footprints: {}", utils::features(&data.nls).len());
+        println!("Land parcels: {}", utils::features(&data.parcels).len());
+        println!("OSM buildings: {}", utils::features(&data.osm).len());
         println!(
             "Bounding box: {:.6},{:.6} .. {:.6},{:.6}",
             data.bbox.min_lon, data.bbox.min_lat, data.bbox.max_lon, data.bbox.max_lat
@@ -103,7 +86,7 @@ fn selected_municipality(params: &Parameters) -> &'static Municipality {
     config::municipality(code).unwrap_or_else(|| fatal_exit("Unknown municipality", code))
 }
 
-fn cli_client(params: &Parameters) -> ingest::IngestClient {
+fn ingest_data(params: &Parameters, municipality: &Municipality) -> ingest::IngestData {
     ingest::IngestClient::new(params)
         .unwrap_or_else(|error| fatal_exit("Failed to init the ingest client", error))
         .with_reporter(ingest::Reporter::new(|progress: ingest::Progress| {
@@ -112,6 +95,8 @@ fn cli_client(params: &Parameters) -> ingest::IngestClient {
                 None => eprintln!("{}: {}", progress.stage.label(), progress.message),
             }
         }))
+        .fetch_all(municipality)
+        .unwrap_or_else(|error| fatal_exit("Data ingest failed", error))
 }
 
 fn print_review_output(output: &review::ReviewOutput) {
@@ -152,6 +137,8 @@ fn fatal_exit(context: &str, error: impl std::fmt::Display) -> ! {
     process::exit(1);
 }
 
-fn feature_count(value: &Value) -> usize {
-    value.get("features").and_then(Value::as_array).map_or(0, Vec::len)
+fn fail_existing_output() -> ! {
+    eprintln!("Review output already exists.");
+    eprintln!("Re-run with --overwrite after confirming that manual review edits will be lost.");
+    process::exit(1);
 }

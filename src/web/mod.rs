@@ -4,15 +4,16 @@ mod progress;
 
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 use crate::config::{self, Municipality};
-use crate::ingest::{IngestClient, Progress as IngestProgress, Reporter};
+use crate::ingest::{Cache, IngestClient, Progress as IngestProgress, Reporter};
 use crate::review;
 use crate::utils::Parameters;
 
@@ -27,9 +28,9 @@ pub fn serve(params: Parameters) -> Result<(), String> {
     let state = Arc::new(Mutex::new(AppState {
         params: params.clone(),
         busy: false,
-        phase: Phase::Idle,
         progress: None,
         error: None,
+        error_municipality: None,
         last_adjust: None,
     }));
 
@@ -51,20 +52,20 @@ pub fn serve(params: Parameters) -> Result<(), String> {
 struct AppState {
     params: Parameters,
     busy: bool,
-    phase: Phase,
     progress: Option<ProgressView>,
     error: Option<String>,
+    error_municipality: Option<&'static str>,
     last_adjust: Option<AdjustView>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum Phase {
-    Idle,
-    Running,
-    FirstReview,
-    Final,
-    Error,
+fn lock(state: &Arc<Mutex<AppState>>) -> MutexGuard<'_, AppState> {
+    state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+static PROGRESS_LOCK: Mutex<()> = Mutex::new(());
+
+fn progress_lock() -> MutexGuard<'static, ()> {
+    PROGRESS_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -76,6 +77,7 @@ struct ProgressView {
 
 #[derive(Clone, Debug, Serialize)]
 struct AdjustView {
+    municipality: &'static str,
     cell: String,
     kept: usize,
     removed: usize,
@@ -93,18 +95,16 @@ struct MunicipalityView {
 struct ConfigView {
     municipalities: Vec<MunicipalityView>,
     default_municipality: Option<String>,
-    cache_max_age_days: u64,
-}
-
-#[derive(Serialize)]
-struct CacheResponse {
-    municipality: MunicipalityView,
-    max_age_days: u64,
-    entries: Vec<CacheView>,
 }
 
 #[derive(Serialize)]
 struct CacheView {
+    max_age_days: u64,
+    entries: Vec<CacheEntryView>,
+}
+
+#[derive(Serialize)]
+struct CacheEntryView {
     kind: String,
     path: String,
     exists: bool,
@@ -115,11 +115,9 @@ struct CacheView {
 
 #[derive(Serialize)]
 struct SessionView {
-    municipality: MunicipalityView,
-    can_continue: bool,
     round_id: String,
     notes: String,
-    cache_max_age_days: u64,
+    cache: CacheView,
     cells: Vec<CellInfo>,
 }
 
@@ -136,9 +134,9 @@ struct CellInfo {
 #[derive(Serialize)]
 struct StatusView {
     busy: bool,
-    phase: Phase,
     progress: Option<ProgressView>,
     error: Option<String>,
+    error_municipality: Option<&'static str>,
     last_adjust: Option<AdjustView>,
 }
 
@@ -150,13 +148,7 @@ struct RunRequest {
 }
 
 #[derive(Deserialize)]
-struct AdjustRequest {
-    municipality: String,
-    cell: String,
-}
-
-#[derive(Deserialize)]
-struct DoneRequest {
+struct CellRequest {
     municipality: String,
     cell: String,
 }
@@ -228,17 +220,16 @@ fn handle(mut request: Request, state: Arc<Mutex<AppState>>) -> Result<(), Strin
         match path {
             "/" => HttpResponse::html(INDEX_HTML),
             "/api/config" => config_response(&state),
-            "/api/cache" => cache_response(&state, query),
             "/api/session" => session_response(&state, query),
             "/api/status" => status_response(&state),
             _ => HttpResponse::text(404, "Not found"),
         }
     } else if is_post {
         match path {
-            "/api/run" => start_run(&state, &body),
-            "/api/adjust" => start_adjust(&state, &body),
-            "/api/cells/done" => mark_done(&state, &body),
-            "/api/notes" => save_notes(&state, &body),
+            "/api/run" => unwrap_response(start_run(&state, &body)),
+            "/api/adjust" => unwrap_response(start_adjust(&state, &body)),
+            "/api/cells/done" => unwrap_response(mark_done(&state, &body)),
+            "/api/notes" => unwrap_response(save_notes(&state, &body)),
             _ => HttpResponse::text(404, "Not found"),
         }
     } else {
@@ -246,6 +237,10 @@ fn handle(mut request: Request, state: Arc<Mutex<AppState>>) -> Result<(), Strin
     };
 
     respond(request, response)
+}
+
+fn unwrap_response(result: Result<HttpResponse, HttpResponse>) -> HttpResponse {
+    result.unwrap_or_else(|response| response)
 }
 
 fn respond(request: Request, response: HttpResponse) -> Result<(), String> {
@@ -262,12 +257,11 @@ fn respond(request: Request, response: HttpResponse) -> Result<(), String> {
 }
 
 fn config_response(state: &Arc<Mutex<AppState>>) -> HttpResponse {
-    let guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let guard = lock(state);
 
     let view = ConfigView {
         municipalities: config::MUNICIPALITIES.iter().map(municipality_view).collect(),
         default_municipality: guard.params.municipality().map(str::to_string),
-        cache_max_age_days: cache_max_age_days(&guard.params),
     };
 
     drop(guard);
@@ -275,31 +269,15 @@ fn config_response(state: &Arc<Mutex<AppState>>) -> HttpResponse {
     HttpResponse::json(200, &view)
 }
 
-fn cache_response(state: &Arc<Mutex<AppState>>, query: &str) -> HttpResponse {
-    let municipality = match municipality_from_query(query) {
-        Ok(municipality) => municipality,
-        Err(response) => return response,
-    };
-
-    let params = {
-        let guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard.params.clone()
-    };
-
-    let client = match IngestClient::new(&params) {
-        Ok(client) => client,
-        Err(error) => return HttpResponse::error(500, error.to_string()),
-    };
-
-    let cache = match client.cache_state(municipality) {
-        Ok(cache) => cache,
-        Err(error) => return HttpResponse::error(500, error.to_string()),
-    };
+fn cache_view(params: &Parameters, municipality: &Municipality) -> Result<CacheView, String> {
+    let cache = Cache::new(params.cache_dir().to_path_buf())
+        .state(municipality, params.cache_max_age())
+        .map_err(|error| error.to_string())?;
 
     let entries = cache
         .entries
         .into_iter()
-        .map(|entry| CacheView {
+        .map(|entry| CacheEntryView {
             kind: entry.kind.label().to_string(),
             path: absolute_path(&entry.path),
             exists: entry.exists,
@@ -309,14 +287,10 @@ fn cache_response(state: &Arc<Mutex<AppState>>, query: &str) -> HttpResponse {
         })
         .collect();
 
-    HttpResponse::json(
-        200,
-        &CacheResponse {
-            municipality: municipality_view(municipality),
-            max_age_days: cache_max_age_days(&params),
-            entries,
-        },
-    )
+    Ok(CacheView {
+        max_age_days: cache_max_age_days(params),
+        entries,
+    })
 }
 
 fn session_response(state: &Arc<Mutex<AppState>>, query: &str) -> HttpResponse {
@@ -326,8 +300,13 @@ fn session_response(state: &Arc<Mutex<AppState>>, query: &str) -> HttpResponse {
     };
 
     let params = {
-        let guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let guard = lock(state);
         guard.params.clone()
+    };
+
+    let cache = match cache_view(&params, municipality) {
+        Ok(cache) => cache,
+        Err(error) => return HttpResponse::error(500, error),
     };
 
     let cells = match review::review_cells(municipality, params.cache_dir()) {
@@ -335,23 +314,15 @@ fn session_response(state: &Arc<Mutex<AppState>>, query: &str) -> HttpResponse {
         Err(error) => return HttpResponse::error(500, error.to_string()),
     };
 
-    if cells.is_empty() {
-        return HttpResponse::json(
-            200,
-            &SessionView {
-                municipality: municipality_view(municipality),
-                can_continue: false,
-                round_id: String::new(),
-                notes: String::new(),
-                cache_max_age_days: cache_max_age_days(&params),
-                cells: Vec::new(),
-            },
-        );
-    }
+    let progress = if cells.is_empty() {
+        ReviewProgress::default()
+    } else {
+        let _guard = progress_lock();
 
-    let progress = match load_or_create_progress(&params, municipality) {
-        Ok(progress) => progress,
-        Err(error) => return HttpResponse::error(500, error),
+        match load_or_create_progress(&params, municipality) {
+            Ok(progress) => progress,
+            Err(error) => return HttpResponse::error(500, error),
+        }
     };
 
     let cell_infos = cells
@@ -362,24 +333,22 @@ fn session_response(state: &Arc<Mutex<AppState>>, query: &str) -> HttpResponse {
     HttpResponse::json(
         200,
         &SessionView {
-            municipality: municipality_view(municipality),
-            can_continue: true,
             round_id: progress.round_id,
             notes: progress.notes,
-            cache_max_age_days: cache_max_age_days(&params),
+            cache,
             cells: cell_infos,
         },
     )
 }
 
 fn status_response(state: &Arc<Mutex<AppState>>) -> HttpResponse {
-    let guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let guard = lock(state);
 
     let view = StatusView {
         busy: guard.busy,
-        phase: guard.phase,
         progress: guard.progress.clone(),
         error: guard.error.clone(),
+        error_municipality: guard.error_municipality,
         last_adjust: guard.last_adjust.clone(),
     };
 
@@ -388,85 +357,117 @@ fn status_response(state: &Arc<Mutex<AppState>>) -> HttpResponse {
     HttpResponse::json(200, &view)
 }
 
-fn start_run(state: &Arc<Mutex<AppState>>, body: &str) -> HttpResponse {
-    let request: RunRequest = match serde_json::from_str(body) {
-        Ok(request) => request,
-        Err(error) => return HttpResponse::error(400, format!("Invalid request: {error}")),
-    };
+fn parse_request<T: DeserializeOwned>(body: &str) -> Result<T, HttpResponse> {
+    serde_json::from_str(body).map_err(|error| HttpResponse::error(400, format!("Invalid request: {error}")))
+}
 
-    let municipality = match config::municipality(&request.municipality) {
-        Some(municipality) => municipality,
-        None => return HttpResponse::error(400, "Unknown municipality"),
-    };
+fn request_municipality(code: &str) -> Result<&'static Municipality, HttpResponse> {
+    config::municipality(code).ok_or_else(|| HttpResponse::error(400, "Unknown municipality"))
+}
+
+fn begin_job(state: &Arc<Mutex<AppState>>, stage: &str, message: String) -> Result<Parameters, HttpResponse> {
+    let mut guard = lock(state);
+
+    if guard.busy {
+        return Err(HttpResponse::error(409, "A job is already running"));
+    }
+
+    guard.busy = true;
+    guard.progress = Some(ProgressView {
+        stage: stage.to_string(),
+        message,
+        percent: None,
+    });
+    guard.error = None;
+    guard.error_municipality = None;
+    guard.last_adjust = None;
+
+    Ok(guard.params.clone())
+}
+
+fn idle_params(state: &Arc<Mutex<AppState>>) -> Result<Parameters, HttpResponse> {
+    let guard = lock(state);
+
+    if guard.busy {
+        return Err(HttpResponse::error(409, "A job is already running"));
+    }
+
+    Ok(guard.params.clone())
+}
+
+fn run_job<T>(job: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(job))
+        .unwrap_or_else(|_| Err("Background job failed unexpectedly".to_string()))
+}
+
+fn finish_job<T>(
+    state: &Arc<Mutex<AppState>>,
+    municipality: &'static Municipality,
+    result: Result<T, String>,
+    on_success: impl FnOnce(&mut AppState, T),
+) {
+    let mut guard = lock(state);
+    guard.busy = false;
+
+    match result {
+        Ok(value) => {
+            on_success(&mut guard, value);
+            guard.error = None;
+            guard.error_municipality = None;
+        }
+        Err(error) => {
+            guard.error = Some(error);
+            guard.error_municipality = Some(municipality.code);
+        }
+    }
+}
+
+fn start_run(state: &Arc<Mutex<AppState>>, body: &str) -> Result<HttpResponse, HttpResponse> {
+    let request: RunRequest = parse_request(body)?;
+    let municipality = request_municipality(&request.municipality)?;
 
     let allow_overwrite = {
-        let guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let guard = lock(state);
         request.overwrite || guard.params.overwrite()
     };
 
     if !allow_overwrite {
         let existing = {
-            let guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let guard = lock(state);
             review::existing_outputs(municipality, guard.params.cache_dir())
         };
 
         match existing {
             Ok(paths) if !paths.is_empty() => {
                 let paths: Vec<String> = paths.iter().map(|path| absolute_path(path)).collect();
-                return HttpResponse::json(409, &json!({ "error": "overwrite_required", "paths": paths }));
+                return Ok(HttpResponse::json(
+                    409,
+                    &json!({ "error": "overwrite_required", "paths": paths }),
+                ));
             }
             Ok(_) => {}
-            Err(error) => return HttpResponse::error(500, error.to_string()),
+            Err(error) => return Err(HttpResponse::error(500, error.to_string())),
         }
     }
 
-    let params = {
-        let mut guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        if guard.busy {
-            return HttpResponse::error(409, "A job is already running");
-        }
-
-        guard.busy = true;
-        guard.phase = Phase::Running;
-        guard.progress = Some(ProgressView {
-            stage: "Starting".to_string(),
-            message: "Preparing the review run".to_string(),
-            percent: None,
-        });
-        guard.error = None;
-        guard.last_adjust = None;
-
-        guard.params.clone()
-    };
+    let params = begin_job(state, "Starting", "Preparing the review run".to_string())?;
 
     let job_state = Arc::clone(state);
     let overwrite = allow_overwrite;
 
     thread::spawn(move || {
-        let result = do_run(&params, &job_state, municipality, overwrite);
-        let mut guard = job_state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let result = run_job(|| do_run(&params, &job_state, municipality, overwrite));
 
-        guard.busy = false;
-
-        match result {
-            Ok(output) => {
-                guard.phase = Phase::FirstReview;
-                guard.progress = Some(ProgressView {
-                    stage: "Review".to_string(),
-                    message: format!("{} review packages ready", output.cells.len()),
-                    percent: Some(100),
-                });
-                guard.error = None;
-            }
-            Err(error) => {
-                guard.phase = Phase::Error;
-                guard.error = Some(error);
-            }
-        }
+        finish_job(&job_state, municipality, result, |guard, output| {
+            guard.progress = Some(ProgressView {
+                stage: "Review".to_string(),
+                message: format!("{} review packages ready", output.cells.len()),
+                percent: None,
+            });
+        });
     });
 
-    HttpResponse::json(202, &json!({ "started": true }))
+    Ok(HttpResponse::json(202, &json!({ "started": true })))
 }
 
 fn do_run(
@@ -482,7 +483,7 @@ fn do_run(
     let reporter_state = Arc::clone(state);
 
     let reporter = Reporter::new(move |progress: IngestProgress| {
-        let mut guard = reporter_state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut guard = lock(&reporter_state);
 
         guard.progress = Some(ProgressView {
             stage: progress.stage.label().to_string(),
@@ -496,90 +497,59 @@ fn do_run(
         .with_reporter(reporter);
     let data = client.fetch_all(municipality).map_err(|error| error.to_string())?;
 
-    set_progress(state, "Review", "Comparing buildings", None);
+    set_progress(state, "Review", "Comparing buildings");
 
-    let options = review::ReviewOptions { overwrite };
-    let output = review::run(&data, municipality, params.cache_dir(), &options).map_err(|error| error.to_string())?;
+    let output = review::run(&data, municipality, params.cache_dir(), overwrite).map_err(|error| error.to_string())?;
 
-    set_progress(state, "Review", "Writing review progress", Some(100));
+    set_progress(state, "Review", "Writing review progress");
 
     let cells: Vec<String> = output.cells.iter().map(|cell| cell.number.clone()).collect();
     let progress = ReviewProgress::with_round_id(&cells, output.round_id.clone());
+    let _guard = progress_lock();
 
     progress::save(&progress::path(params.cache_dir(), municipality), &progress)?;
 
     Ok(output)
 }
 
-fn start_adjust(state: &Arc<Mutex<AppState>>, body: &str) -> HttpResponse {
-    let request: AdjustRequest = match serde_json::from_str(body) {
-        Ok(request) => request,
-        Err(error) => return HttpResponse::error(400, format!("Invalid request: {error}")),
-    };
-
-    let municipality = match config::municipality(&request.municipality) {
-        Some(municipality) => municipality,
-        None => return HttpResponse::error(400, "Unknown municipality"),
-    };
-
-    let params = {
-        let mut guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        if guard.busy {
-            return HttpResponse::error(409, "A job is already running");
-        }
-
-        guard.busy = true;
-        guard.phase = Phase::Running;
-        guard.progress = Some(ProgressView {
-            stage: "Adjust".to_string(),
-            message: format!("Recomputing addresses for {cell}", cell = request.cell),
-            percent: None,
-        });
-        guard.error = None;
-        guard.last_adjust = None;
-
-        guard.params.clone()
-    };
+fn start_adjust(state: &Arc<Mutex<AppState>>, body: &str) -> Result<HttpResponse, HttpResponse> {
+    let request: CellRequest = parse_request(body)?;
+    let municipality = request_municipality(&request.municipality)?;
+    let params = begin_job(
+        state,
+        "Adjust",
+        format!("Recomputing addresses for {cell}", cell = request.cell),
+    )?;
 
     let job_state = Arc::clone(state);
     let cell = request.cell.clone();
 
     thread::spawn(move || {
-        let result = do_adjust(&params, municipality, &cell);
-        let mut guard = job_state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard.busy = false;
+        let result = run_job(|| do_adjust(&params, municipality, &cell));
 
-        match result {
-            Ok(adjust) => {
-                guard.phase = Phase::Final;
-                guard.progress = Some(ProgressView {
-                    stage: "Adjust".to_string(),
-                    message: format!("{cell} adjusted", cell = adjust.cell),
-                    percent: Some(100),
-                });
-                guard.last_adjust = Some(adjust);
-                guard.error = None;
-            }
-            Err(error) => {
-                guard.phase = Phase::Error;
-                guard.error = Some(error);
-            }
-        }
+        finish_job(&job_state, municipality, result, |guard, adjust| {
+            guard.progress = Some(ProgressView {
+                stage: "Adjust".to_string(),
+                message: format!("{cell} adjusted", cell = adjust.cell),
+                percent: None,
+            });
+            guard.last_adjust = Some(adjust);
+        });
     });
 
-    HttpResponse::json(202, &json!({ "started": true }))
+    Ok(HttpResponse::json(202, &json!({ "started": true })))
 }
 
 fn do_adjust(params: &Parameters, municipality: &'static Municipality, cell: &str) -> Result<AdjustView, String> {
     let output = review::adjust(municipality, params.cache_dir(), cell).map_err(|error| error.to_string())?;
-
+    let _guard = progress_lock();
     let mut progress = load_or_create_progress(params, municipality)?;
 
     progress.set_buildings(cell)?;
     progress::save(&progress::path(params.cache_dir(), municipality), &progress)?;
 
     Ok(AdjustView {
+        municipality: municipality.code,
         cell: cell.to_string(),
         kept: output.kept,
         removed: output.removed,
@@ -588,76 +558,49 @@ fn do_adjust(params: &Parameters, municipality: &'static Municipality, cell: &st
     })
 }
 
-fn mark_done(state: &Arc<Mutex<AppState>>, body: &str) -> HttpResponse {
-    let request: DoneRequest = match serde_json::from_str(body) {
-        Ok(request) => request,
-        Err(error) => return HttpResponse::error(400, format!("Invalid request: {error}")),
-    };
+fn mark_done(state: &Arc<Mutex<AppState>>, body: &str) -> Result<HttpResponse, HttpResponse> {
+    let request: CellRequest = parse_request(body)?;
+    let municipality = request_municipality(&request.municipality)?;
+    let params = idle_params(state)?;
+    let _guard = progress_lock();
 
-    let municipality = match config::municipality(&request.municipality) {
-        Some(municipality) => municipality,
-        None => return HttpResponse::error(400, "Unknown municipality"),
-    };
+    let mut progress =
+        load_or_create_progress(&params, municipality).map_err(|error| HttpResponse::error(500, error))?;
 
-    let params = {
-        let guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    progress
+        .set_addresses(&request.cell)
+        .map_err(|error| HttpResponse::error(409, error))?;
 
-        if guard.busy {
-            return HttpResponse::error(409, "A job is already running");
-        }
+    save_progress(&params, municipality, &progress)?;
 
-        guard.params.clone()
-    };
-
-    let mut progress = match load_or_create_progress(&params, municipality) {
-        Ok(progress) => progress,
-        Err(error) => return HttpResponse::error(500, error),
-    };
-
-    if let Err(error) = progress.set_addresses(&request.cell) {
-        return HttpResponse::error(409, error);
-    }
-
-    if let Err(error) = progress::save(&progress::path(params.cache_dir(), municipality), &progress) {
-        return HttpResponse::error(500, error);
-    }
-
-    HttpResponse::json(200, &json!({ "cell": request.cell, "addresses": true }))
+    Ok(HttpResponse::json(
+        200,
+        &json!({ "cell": request.cell, "addresses": true }),
+    ))
 }
 
-fn save_notes(state: &Arc<Mutex<AppState>>, body: &str) -> HttpResponse {
-    let request: NotesRequest = match serde_json::from_str(body) {
-        Ok(request) => request,
-        Err(error) => return HttpResponse::error(400, format!("Invalid request: {error}")),
-    };
+fn save_notes(state: &Arc<Mutex<AppState>>, body: &str) -> Result<HttpResponse, HttpResponse> {
+    let request: NotesRequest = parse_request(body)?;
+    let municipality = request_municipality(&request.municipality)?;
+    let params = idle_params(state)?;
+    let _guard = progress_lock();
 
-    let municipality = match config::municipality(&request.municipality) {
-        Some(municipality) => municipality,
-        None => return HttpResponse::error(400, "Unknown municipality"),
-    };
-
-    let params = {
-        let guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        if guard.busy {
-            return HttpResponse::error(409, "A job is already running");
-        }
-
-        guard.params.clone()
-    };
-
-    let mut progress = match load_or_create_progress(&params, municipality) {
-        Ok(progress) => progress,
-        Err(error) => return HttpResponse::error(500, error),
-    };
+    let mut progress =
+        load_or_create_progress(&params, municipality).map_err(|error| HttpResponse::error(500, error))?;
 
     progress.notes = request.notes;
+    save_progress(&params, municipality, &progress)?;
 
-    if let Err(error) = progress::save(&progress::path(params.cache_dir(), municipality), &progress) {
-        return HttpResponse::error(500, error);
-    }
+    Ok(HttpResponse::json(200, &json!({ "saved": true })))
+}
 
-    HttpResponse::json(200, &json!({ "saved": true }))
+fn save_progress(
+    params: &Parameters,
+    municipality: &Municipality,
+    progress: &ReviewProgress,
+) -> Result<(), HttpResponse> {
+    progress::save(&progress::path(params.cache_dir(), municipality), progress)
+        .map_err(|error| HttpResponse::error(500, error))
 }
 
 fn load_or_create_progress(params: &Parameters, municipality: &Municipality) -> Result<ReviewProgress, String> {
@@ -719,9 +662,13 @@ fn cell_info(params: &Parameters, municipality: &Municipality, cell: &str, progr
 }
 
 fn municipality_from_query(query: &str) -> Result<&'static Municipality, HttpResponse> {
-    let code = query_value(query, "municipality").ok_or_else(|| HttpResponse::error(400, "Missing municipality"))?;
+    let code = query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find_map(|(name, value)| (name == "municipality").then_some(value))
+        .ok_or_else(|| HttpResponse::error(400, "Missing municipality"))?;
 
-    config::municipality(code).ok_or_else(|| HttpResponse::error(400, "Unknown municipality"))
+    request_municipality(code)
 }
 
 fn municipality_view(municipality: &Municipality) -> MunicipalityView {
@@ -735,26 +682,14 @@ fn cache_max_age_days(params: &Parameters) -> u64 {
     params.cache_max_age().as_secs() / 86_400
 }
 
-fn set_progress(state: &Arc<Mutex<AppState>>, stage: &str, message: impl Into<String>, percent: Option<u8>) {
-    let mut guard = state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+fn set_progress(state: &Arc<Mutex<AppState>>, stage: &str, message: impl Into<String>) {
+    let mut guard = lock(state);
 
     guard.progress = Some(ProgressView {
         stage: stage.to_string(),
         message: message.into(),
-        percent,
+        percent: None,
     });
-}
-
-fn query_value<'a>(query: &'a str, key: &str) -> Option<&'a str> {
-    for pair in query.split('&') {
-        if let Some((name, value)) = pair.split_once('=') {
-            if name == key {
-                return Some(value);
-            }
-        }
-    }
-
-    None
 }
 
 fn absolute_path(path: &Path) -> String {
@@ -775,25 +710,11 @@ fn absolute_path(path: &Path) -> String {
 mod tests {
     use std::collections::BTreeMap;
     use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::path::Path;
+
+    use crate::utils::test_support::TempDir;
 
     use super::*;
-
-    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    fn temp_dir(label: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "lacuna-web-test-{label}-{}-{}",
-            std::process::id(),
-            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("failed to create test directory");
-
-        path
-    }
 
     fn write_state(path: &Path, round_id: &str) {
         let state = review::ReviewState {
@@ -805,8 +726,37 @@ mod tests {
     }
 
     #[test]
+    fn job_panic_is_reported() {
+        let result = run_job(|| -> Result<(), String> { panic!("boom") });
+        assert_eq!(result, Err("Background job failed unexpectedly".to_string()));
+    }
+
+    #[test]
+    fn session_includes_cache_state() {
+        let dir = TempDir::new("web", "session-cache");
+        let params = crate::utils::parse_args(&["--cache".to_string(), dir.display().to_string()]).unwrap();
+        let state = Arc::new(Mutex::new(AppState {
+            params,
+            busy: false,
+            progress: None,
+            error: None,
+            error_municipality: None,
+            last_adjust: None,
+        }));
+
+        let response = session_response(&state, "municipality=291");
+        assert_eq!(response.status, 200);
+
+        let value: serde_json::Value = serde_json::from_str(&response.body).expect("invalid session JSON");
+        let entries = value["cache"]["entries"].as_array().expect("missing cache entries");
+        assert_eq!(entries.len(), 6);
+        assert!(value["cells"].as_array().expect("missing cells").is_empty());
+        assert_eq!(value["round_id"], "");
+    }
+
+    #[test]
     fn progress_resets_when_review_state_round_changes() {
-        let dir = temp_dir("progress-reset");
+        let dir = TempDir::new("web", "progress-reset");
         let municipality = config::municipality("291").expect("missing test municipality");
         let params = crate::utils::parse_args(&["--cache".to_string(), dir.display().to_string()]).unwrap();
         let cell = "00_00";
@@ -835,13 +785,11 @@ mod tests {
         assert_eq!(progress.round_id, "2000");
         assert!(progress.notes.is_empty());
         assert!(!progress.cells[cell].buildings);
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn cell_info_reads_the_osm_download_url() {
-        let dir = temp_dir("cell-info");
+        let dir = TempDir::new("web", "cell-info");
         let municipality = config::municipality("291").expect("missing test municipality");
         let params = crate::utils::parse_args(&["--cache".to_string(), dir.display().to_string()]).unwrap();
         let cell = "00_00";
@@ -861,7 +809,5 @@ mod tests {
             info.download_url,
             "https://www.openstreetmap.org/#map=15/61.01000/25.00000"
         );
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -1,4 +1,5 @@
 <!doctype html>
+
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -90,28 +91,40 @@
     </section>
 </main>
 <script>
-    let config = null;
     let session = null;
     let status = null;
     let selected = "";
     let pollTimer = null;
     let revealRound = false;
+    let sessionRequest = 0;
 
     const $ = (id) => document.getElementById(id);
 
     async function api(path, options) {
         const response = await fetch(path, options);
         const text = await response.text();
+
         let data;
+
         try {
             data = text ? JSON.parse(text) : {};
         } catch {
             data = { error: text };
         }
+
         if (!response.ok) {
             throw data;
         }
+
         return data;
+    }
+
+    function post(path, body) {
+        return api(path, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        });
     }
 
     function escapeHtml(value) {
@@ -122,53 +135,68 @@
             .replace(/"/g, "&quot;");
     }
 
-    function showError(message) {
+    function setError(message = "") {
         $("error").textContent = message;
-        $("error").hidden = false;
-    }
-
-    function clearError() {
-        $("error").textContent = "";
-        $("error").hidden = true;
+        $("error").hidden = !message;
     }
 
     function formatAge(seconds) {
         if (seconds === null || seconds === undefined) {
             return "unknown";
         }
+
         const days = Math.floor(seconds / 86400);
         const hours = Math.floor((seconds % 86400) / 3600);
+
         return days > 0 ? `${days}d ${hours}h` : `${hours}h`;
     }
 
     function formatSize(bytes) {
-        if (bytes >= 1024 * 1024 * 1024) {
-            return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB`;
+        if (bytes < 1_000) {
+            return `${bytes} B`;
         }
-        if (bytes >= 1024 * 1024) {
-            return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+
+        const units = ["kB", "MB", "GB"];
+        let value = bytes / 1_000;
+        let unit = 0;
+
+        while (value >= 1_000 && unit < units.length - 1) {
+            value /= 1_000;
+            unit += 1;
         }
-        return `${bytes} B`;
+
+        let text = value.toFixed(1);
+
+        if (text === "1000.0" && unit < units.length - 1) {
+            value /= 1_000;
+            unit += 1;
+            text = value.toFixed(1);
+        }
+
+        return `${text} ${units[unit]}`;
     }
 
     function copyButton(value, label) {
         if (!value) {
             return "";
         }
+
         return `<button data-copy="${escapeHtml(value)}">${label}</button>`;
     }
 
     async function loadConfig() {
-        config = await api("/api/config");
+        const data = await api("/api/config");
         const select = $("municipality");
-        for (const municipality of config.municipalities) {
+
+        for (const municipality of data.municipalities) {
             const option = document.createElement("option");
             option.value = municipality.code;
             option.textContent = `${municipality.name} (${municipality.code})`;
             select.appendChild(option);
         }
-        if (config.default_municipality) {
-            select.value = config.default_municipality;
+
+        if (data.default_municipality) {
+            select.value = data.default_municipality;
         }
 
         select.addEventListener("change", onMunicipalityChange);
@@ -182,15 +210,18 @@
         document.addEventListener("click", onDocumentClick);
 
         await pollStatus();
+
         if (status && status.busy) {
             startPolling();
         }
+
         if (select.value) {
             await onMunicipalityChange();
         }
     }
 
     async function onMunicipalityChange() {
+        sessionRequest += 1;
         selected = $("municipality").value;
         revealRound = false;
         session = null;
@@ -202,44 +233,51 @@
         $("final-cells").innerHTML = "";
         $("adjust-cell").innerHTML = "";
         $("cache").innerHTML = "";
-        clearError();
+
+        setError();
 
         if (!selected) {
             $("run").disabled = true;
             return;
         }
 
-        await Promise.all([loadCache(), loadSession()]);
+        await loadSession();
         renderStatus();
     }
 
-    async function loadCache() {
-        if (!selected) {
-            return;
-        }
-        try {
-            const data = await api(`/api/cache?municipality=${encodeURIComponent(selected)}`);
-            const entries = data.entries.map((entry) => {
-                const status = entry.exists
-                    ? `${formatSize(entry.size_bytes)}, age ${formatAge(entry.age_seconds)}, ${entry.fresh ? "fresh" : "stale"}`
-                    : "missing";
-                return `<li>${escapeHtml(entry.kind)}: <code>${escapeHtml(entry.path)}</code> (${escapeHtml(status)})</li>`;
-            }).join("");
-            $("cache").innerHTML = `<p>Cache max age: ${data.max_age_days} days</p><ul>${entries}</ul>`;
-        } catch (error) {
-            showError(error.error || "Failed to load cache state.");
-        }
+    function renderCache() {
+        const cache = session.cache;
+
+        const entries = cache.entries.map((entry) => {
+            const state = entry.exists
+                ? `${formatSize(entry.size_bytes)}, age ${formatAge(entry.age_seconds)}, ${entry.fresh ? "fresh" : "stale"}`
+                : "missing";
+            return `<li>${escapeHtml(entry.kind)}: <code>${escapeHtml(entry.path)}</code> (${escapeHtml(state)})</li>`;
+        }).join("");
+
+        $("cache").innerHTML = `<p>Cache max age: ${cache.max_age_days} days</p><ul>${entries}</ul>`;
     }
 
     async function loadSession() {
         if (!selected) {
             return;
         }
+
+        const request = ++sessionRequest;
+
         try {
-            session = await api(`/api/session?municipality=${encodeURIComponent(selected)}`);
+            const data = await api(`/api/session?municipality=${encodeURIComponent(selected)}`);
+
+            if (request !== sessionRequest) {
+                return;
+            }
+
+            session = data;
             applySession();
         } catch (error) {
-            showError(error.error || "Failed to load the review round.");
+            if (request === sessionRequest) {
+                setError(error.error || "Failed to load the review round.");
+            }
         }
     }
 
@@ -247,10 +285,14 @@
         if (!session) {
             return;
         }
+
         $("notes").value = session.notes || "";
+        renderCache();
         renderCells();
 
-        if (session.can_continue && !revealRound) {
+        const hasCells = session.cells.length > 0;
+
+        if (hasCells && !revealRound) {
             const reviewed = session.cells.filter((cell) => cell.buildings).length;
             const done = session.cells.filter((cell) => cell.addresses).length;
             const roundLabel = /^\d+$/.test(session.round_id)
@@ -262,15 +304,40 @@
             $("adjust-report").hidden = true;
             $("final").hidden = true;
             $("run").textContent = "Start new round";
+
             return;
         }
 
         $("round").hidden = true;
-        const hasCells = session.cells.length > 0;
         const hasAdjust = session.cells.some((cell) => cell.buildings);
         $("first-review").hidden = !hasCells;
         $("final").hidden = !hasAdjust;
-        $("run").textContent = session.can_continue ? "Start new round" : "Run review";
+        $("run").textContent = hasCells ? "Start new round" : "Run review";
+    }
+
+    function cellTable(cells, actionLabel, action) {
+        return `
+            <table>
+                <thead>
+                    <tr>
+                        <th>Cell</th>
+                        <th>Buildings</th>
+                        <th>Addresses</th>
+                        <th>${actionLabel}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${cells.map((cell) => `
+                        <tr>
+                            <td><code>${escapeHtml(cell.number)}</code></td>
+                            <td>${cell.buildings ? "Reviewed" : "Pending"}</td>
+                            <td>${cell.addresses ? "Done" : "Pending"}</td>
+                            <td>${action(cell)}</td>
+                        </tr>
+                    `).join("")}
+                </tbody>
+            </table>
+        `;
     }
 
     function renderCells() {
@@ -278,70 +345,29 @@
             return;
         }
 
-        $("cells").innerHTML = `
-            <table>
-                <thead>
-                    <tr>
-                        <th>Cell</th>
-                        <th>Buildings</th>
-                        <th>Addresses</th>
-                        <th>Copy</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${session.cells.map((cell) => `
-                        <tr>
-                            <td><code>${escapeHtml(cell.number)}</code></td>
-                            <td>${cell.buildings ? "Reviewed" : "Pending"}</td>
-                            <td>${cell.addresses ? "Done" : "Pending"}</td>
-                            <td>
-                                ${copyButton(cell.download_url, "OSM URL")}
-                                ${copyButton(cell.buildings_path, "buildings.osm")}
-                                ${copyButton(cell.addresses_path, "addresses.osm")}
-                            </td>
-                        </tr>
-                    `).join("")}
-                </tbody>
-            </table>
-        `;
+        $("cells").innerHTML = cellTable(session.cells, "Copy", (cell) => `
+            ${copyButton(cell.download_url, "OSM URL")}
+            ${copyButton(cell.buildings_path, "buildings.osm")}
+            ${copyButton(cell.addresses_path, "addresses.osm")}
+        `);
 
-        $("final-cells").innerHTML = `
-            <table>
-                <thead>
-                    <tr>
-                        <th>Cell</th>
-                        <th>Buildings</th>
-                        <th>Addresses</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${session.cells.map((cell) => {
-                        let action;
-                        if (cell.addresses) {
-                            action = "Done";
-                        } else if (cell.buildings) {
-                            action = `<button class="mark-done" data-cell="${escapeHtml(cell.number)}">Mark as done</button>`;
-                        } else {
-                            action = `<span>Run adjust first</span>`;
-                        }
-                        return `
-                            <tr>
-                                <td><code>${escapeHtml(cell.number)}</code></td>
-                                <td>${cell.buildings ? "Reviewed" : "Pending"}</td>
-                                <td>${cell.addresses ? "Done" : "Pending"}</td>
-                                <td>${action}</td>
-                            </tr>
-                        `;
-                    }).join("")}
-                </tbody>
-            </table>
-        `;
+        $("final-cells").innerHTML = cellTable(session.cells, "Action", (cell) => {
+            if (cell.addresses) {
+                return "Done";
+            }
+
+            if (cell.buildings) {
+                return `<button class="mark-done" data-cell="${escapeHtml(cell.number)}">Mark as done</button>`;
+            }
+
+            return "<span>Run adjust first</span>";
+        });
 
         const current = $("adjust-cell").value;
         $("adjust-cell").innerHTML = session.cells
             .map((cell) => `<option value="${escapeHtml(cell.number)}">${escapeHtml(cell.number)}${cell.buildings ? " (adjusted)" : ""}</option>`)
             .join("");
+
         if (current && session.cells.some((cell) => cell.number === current)) {
             $("adjust-cell").value = current;
         }
@@ -349,16 +375,14 @@
 
     async function startRun(overwrite) {
         if (!selected) {
-            showError("Select a municipality.");
+            setError("Select a municipality.");
             return;
         }
-        clearError();
+
+        setError();
+
         try {
-            await api("/api/run", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ municipality: selected, overwrite })
-            });
+            await post("/api/run", { municipality: selected, overwrite });
             revealRound = true;
             startPolling();
         } catch (error) {
@@ -366,29 +390,30 @@
                 if (confirm("Review output already exists. Overwriting will delete manual review edits. Continue?")) {
                     return startRun(true);
                 }
+
                 return;
             }
-            showError(error.error || "Run failed.");
+
+            setError(error.error || "Run failed.");
         }
     }
 
     async function startAdjust() {
         const cell = $("adjust-cell").value;
+
         if (!selected || !cell) {
-            showError("Select a municipality and a cell.");
+            setError("Select a municipality and a cell.");
             return;
         }
-        clearError();
+
+        setError();
+
         try {
-            await api("/api/adjust", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ municipality: selected, cell })
-            });
+            await post("/api/adjust", { municipality: selected, cell });
             revealRound = true;
             startPolling();
         } catch (error) {
-            showError(error.error || "Adjust failed.");
+            setError(error.error || "Adjust failed.");
         }
     }
 
@@ -396,16 +421,14 @@
         if (!selected) {
             return;
         }
-        clearError();
+
+        setError();
+
         try {
-            await api("/api/cells/done", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ municipality: selected, cell })
-            });
+            await post("/api/cells/done", { municipality: selected, cell });
             await loadSession();
         } catch (error) {
-            showError(error.error || "Failed to mark the cell done.");
+            setError(error.error || "Failed to mark the cell done.");
         }
     }
 
@@ -413,15 +436,12 @@
         if (!selected) {
             return;
         }
+
         try {
-            await api("/api/notes", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ municipality: selected, notes: $("notes").value })
-            });
+            await post("/api/notes", { municipality: selected, notes: $("notes").value });
             $("notes-status").textContent = "Saved.";
         } catch (error) {
-            showError(error.error || "Failed to save notes.");
+            setError(error.error || "Failed to save notes.");
         }
     }
 
@@ -429,6 +449,7 @@
         if (!pollTimer) {
             pollTimer = setInterval(pollStatus, 800);
         }
+
         pollStatus();
     }
 
@@ -436,17 +457,19 @@
         try {
             status = await api("/api/status");
             renderStatus();
+
             if (!status.busy) {
                 if (pollTimer) {
                     clearInterval(pollTimer);
                     pollTimer = null;
                 }
+
                 if (selected) {
-                    await Promise.all([loadSession(), loadCache()]);
+                    await loadSession();
                 }
             }
         } catch (error) {
-            showError(error.error || "Status check failed.");
+            setError(error.error || "Status check failed.");
         }
     }
 
@@ -458,6 +481,7 @@
         if (status.busy) {
             const progress = status.progress || {};
             const percent = progress.percent;
+
             $("status").innerHTML = `
                 <p>${escapeHtml(progress.stage || "Working")}: ${escapeHtml(progress.message || "")}${percent === null || percent === undefined ? "" : ` (${percent}%)`}</p>
             `;
@@ -469,30 +493,34 @@
             $("adjust").disabled = false;
         }
 
-        if (status.error) {
-            showError(status.error);
+        if (status.error && status.error_municipality === selected) {
+            setError(status.error);
         } else {
-            clearError();
+            setError();
         }
 
-        if (status.last_adjust) {
+        if (status.last_adjust && status.last_adjust.municipality === selected) {
             const adjust = status.last_adjust;
             $("adjust-details").innerHTML = `
                 <p>Cell <code>${escapeHtml(adjust.cell)}</code>: ${adjust.kept} kept buildings, ${adjust.removed} removed, ${adjust.placed} addresses kept on buildings, ${adjust.address_fixes} address fixes.</p>
                 <p>Open the cell's <code>addresses.osm</code> path in JOSM for the final review.</p>
             `;
             $("adjust-report").hidden = false;
+        } else {
+            $("adjust-report").hidden = true;
         }
     }
 
     async function onDocumentClick(event) {
         const copy = event.target.closest("[data-copy]");
+
         if (copy) {
             await copyText(copy.dataset.copy, copy);
             return;
         }
 
         const done = event.target.closest(".mark-done");
+
         if (done) {
             await markDone(done.dataset.cell);
         }
@@ -509,13 +537,15 @@
             document.execCommand("copy");
             area.remove();
         }
+
         button.classList.add("copied");
+
         setTimeout(() => {
             button.classList.remove("copied");
         }, 1200);
     }
 
-    loadConfig().catch((error) => showError(error.error || "Failed to load the web interface."));
+    loadConfig().catch((error) => setError(error.error || "Failed to load the web interface."));
 </script>
 </body>
 </html>

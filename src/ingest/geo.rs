@@ -4,6 +4,8 @@ use proj4rs::proj::Proj;
 use proj4rs::transform::transform;
 use serde_json::Value;
 
+use crate::utils;
+
 use super::error::IngestError;
 
 const BBOX_MARGIN: f64 = 0.02;
@@ -27,6 +29,40 @@ impl BBox {
     }
 }
 
+/// Parses a GeoJSON `[lon, lat]` point array.
+pub fn point_of_coordinates(value: &Value) -> Option<(f64, f64)> {
+    let coordinates = value.as_array()?;
+
+    if coordinates.len() < 2 {
+        return None;
+    }
+
+    Some((coordinates[0].as_f64()?, coordinates[1].as_f64()?))
+}
+
+/// Parses the point geometry of a GeoJSON feature.
+pub fn point_of_feature(feature: &Value) -> Option<(f64, f64)> {
+    point_of_coordinates(feature.get("geometry")?.get("coordinates")?)
+}
+
+/// Returns the outer rings of a Polygon or MultiPolygon geometry.
+pub fn outer_rings(geometry: &Value) -> Vec<&Value> {
+    let coordinates = geometry.get("coordinates").and_then(Value::as_array);
+
+    match geometry.get("type").and_then(Value::as_str) {
+        Some("Polygon") => coordinates
+            .and_then(|coordinates| coordinates.first())
+            .into_iter()
+            .collect(),
+        Some("MultiPolygon") => coordinates
+            .into_iter()
+            .flatten()
+            .filter_map(|part| part.as_array().and_then(|part| part.first()))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Returns the bounding box around all official points, with a safety margin.
 pub fn bbox_of_points(official: &Value) -> Result<BBox, IngestError> {
     let mut min_lon = f64::INFINITY;
@@ -34,20 +70,8 @@ pub fn bbox_of_points(official: &Value) -> Result<BBox, IngestError> {
     let mut max_lon = f64::NEG_INFINITY;
     let mut max_lat = f64::NEG_INFINITY;
 
-    for feature in official.get("features").and_then(Value::as_array).into_iter().flatten() {
-        let Some(coordinates) = feature
-            .get("geometry")
-            .and_then(|geometry| geometry.get("coordinates"))
-            .and_then(Value::as_array)
-        else {
-            continue;
-        };
-
-        if coordinates.len() < 2 {
-            continue;
-        }
-
-        let (Some(lon), Some(lat)) = (coordinates[0].as_f64(), coordinates[1].as_f64()) else {
+    for feature in utils::features(official) {
+        let Some((lon, lat)) = point_of_feature(feature) else {
             continue;
         };
 

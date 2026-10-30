@@ -8,8 +8,10 @@ use std::time::{Duration, SystemTime};
 use serde_json::Value;
 
 use crate::config::Municipality;
+use crate::utils;
 
 use super::error::IngestError;
+use super::report::Stage;
 
 /// The cache layout used by the ingest client.
 #[derive(Clone, Debug)]
@@ -39,6 +41,14 @@ impl Cache {
         self.municipality_dir(municipality).join(name)
     }
 
+    /// Cached artifact path for one ingest stage.
+    pub fn path(&self, municipality: &Municipality, stage: Stage) -> PathBuf {
+        match stage.file_name() {
+            Some(name) => self.municipality_file(municipality, name),
+            None => self.pbf_path(),
+        }
+    }
+
     pub fn load_json(&self, path: &Path) -> Result<Option<Value>, IngestError> {
         let text = match fs::read_to_string(path) {
             Ok(text) => text,
@@ -55,13 +65,7 @@ impl Cache {
     }
 
     pub fn save_json(&self, path: &Path, value: &Value) -> Result<(), IngestError> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let text = serde_json::to_string(value)?;
-        fs::write(path, text)?;
-
+        utils::save_json(path, value, false)?;
         Ok(())
     }
 
@@ -78,39 +82,20 @@ impl Cache {
 
     /// Returns true when `path` exists and is younger than `max_age`.
     pub fn is_fresh(&self, path: &Path, max_age: Duration) -> Result<bool, IngestError> {
-        let metadata = match fs::metadata(path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
-            Err(error) => return Err(error.into()),
-        };
-
-        let age = metadata
-            .modified()
-            .ok()
-            .and_then(|modified| SystemTime::now().duration_since(modified).ok());
-
-        Ok(age.map(|age| age < max_age).unwrap_or(false))
+        Ok(self.age(path)?.is_some_and(|age| age < max_age))
     }
 
-    pub fn entry(&self, kind: CacheKind, path: PathBuf, max_age: Duration) -> Result<CacheEntry, IngestError> {
-        let metadata = match fs::metadata(&path) {
-            Ok(metadata) => Some(metadata),
-            Err(error) if error.kind() == ErrorKind::NotFound => None,
-            Err(error) => return Err(error.into()),
-        };
+    /// Returns the time since `path` was last modified.
+    pub fn age(&self, path: &Path) -> Result<Option<Duration>, IngestError> {
+        Ok(metadata(path)?.and_then(|metadata| age_of(&metadata)))
+    }
 
-        let (exists, size_bytes, age) = match metadata {
-            Some(metadata) => {
-                let age = metadata
-                    .modified()
-                    .ok()
-                    .and_then(|modified| SystemTime::now().duration_since(modified).ok());
-                (true, metadata.len(), age)
-            }
+    fn entry(&self, kind: Stage, path: PathBuf, max_age: Duration) -> Result<CacheEntry, IngestError> {
+        let (exists, size_bytes, age) = match metadata(&path)? {
+            Some(metadata) => (true, metadata.len(), age_of(&metadata)),
             None => (false, 0, None),
         };
-
-        let fresh = age.map(|age| age < max_age).unwrap_or(false);
+        let fresh = age.is_some_and(|age| age < max_age);
 
         Ok(CacheEntry {
             kind,
@@ -121,36 +106,44 @@ impl Cache {
             fresh,
         })
     }
-}
 
-/// One cached input artifact.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CacheKind {
-    PbfExtract,
-    RyhtiBuildings,
-    RyhtiAddresses,
-    NlsFootprints,
-    Parcels,
-    OsmBuildings,
-}
+    /// Current state of all cached ingest artifacts for one municipality.
+    pub fn state(&self, municipality: &Municipality, max_age: Duration) -> Result<CacheState, IngestError> {
+        let stages = [
+            Stage::OsmExtract,
+            Stage::RyhtiBuildings,
+            Stage::RyhtiAddresses,
+            Stage::NlsFootprints,
+            Stage::Parcels,
+            Stage::OsmBuildings,
+        ];
 
-impl CacheKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::PbfExtract => "Finland OSM extract",
-            Self::RyhtiBuildings => "Ryhti buildings",
-            Self::RyhtiAddresses => "Ryhti addresses",
-            Self::NlsFootprints => "NLS footprints",
-            Self::Parcels => "Land parcels",
-            Self::OsmBuildings => "OSM buildings",
-        }
+        let entries = stages
+            .into_iter()
+            .map(|stage| self.entry(stage, self.path(municipality, stage), max_age))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(CacheState { entries })
     }
+}
+
+fn metadata(path: &Path) -> Result<Option<fs::Metadata>, IngestError> {
+    match fs::metadata(path) {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn age_of(metadata: &fs::Metadata) -> Option<Duration> {
+    let modified = metadata.modified().ok()?;
+    SystemTime::now().duration_since(modified).ok()
 }
 
 /// Current state of one cached artifact.
 #[derive(Clone, Debug)]
 pub struct CacheEntry {
-    pub kind: CacheKind,
+    pub kind: Stage,
     pub path: PathBuf,
     pub exists: bool,
     pub size_bytes: u64,

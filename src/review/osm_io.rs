@@ -7,10 +7,10 @@ use serde_json::Value;
 
 use super::ReviewError;
 
-/// An existing OSM way with its real id, rings, and tags for JOSM.
+/// An existing OSM way with its real id, ring, and tags for JOSM.
 pub struct ExistingWay {
     pub id: i64,
-    pub rings: Vec<Vec<(f64, f64)>>,
+    pub ring: Vec<(f64, f64)>,
     pub tags: Vec<(String, String)>,
 }
 
@@ -26,23 +26,26 @@ pub fn save_existing_osm(path: &Path, ways: &[ExistingWay]) -> Result<(), Review
     let mut next_id: i64 = -1;
 
     for way in ways {
+        let ring = &way.ring;
+        let closed = ring.len() >= 4 && ring.first() == ring.last();
+        let vertex_count = ring.len() - usize::from(closed);
         let mut refs: Vec<i64> = Vec::new();
 
-        for ring in &way.rings {
-            let closed = ring.len() >= 4 && ring.first() == ring.last();
-            let vertex_count = ring.len() - usize::from(closed);
-            for vertex in ring.iter().take(vertex_count) {
-                xml.push_str(&format!(
-                    "  <node id=\"{next_id}\" lat=\"{}\" lon=\"{}\"/>\n",
-                    vertex.1, vertex.0
-                ));
-                refs.push(next_id);
-                next_id -= 1;
-            }
+        for vertex in ring.iter().take(vertex_count) {
+            xml.push_str(&format!(
+                "  <node id=\"{next_id}\" lat=\"{}\" lon=\"{}\"/>\n",
+                vertex.1, vertex.0
+            ));
+            refs.push(next_id);
+            next_id -= 1;
+        }
 
-            if closed {
-                refs.push(refs[0]);
-            }
+        if refs.is_empty() {
+            continue;
+        }
+
+        if closed {
+            refs.push(refs[0]);
         }
 
         xml.push_str(&format!("  <way id=\"{}\" version=\"1\">\n", way.id));
@@ -117,12 +120,19 @@ pub fn save_osm(path: &Path, features: &[Value]) -> Result<(), ReviewError> {
                 let Some(vertex) = vertex.as_array() else {
                     continue;
                 };
+                if vertex.len() < 2 {
+                    continue;
+                }
                 xml.push_str(&format!(
                     "  <node id=\"{next_id}\" lat=\"{}\" lon=\"{}\"/>\n",
                     vertex[1], vertex[0]
                 ));
                 refs.push(next_id);
                 next_id -= 1;
+            }
+
+            if refs.is_empty() {
+                continue;
             }
 
             if closed {

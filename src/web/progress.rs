@@ -3,11 +3,11 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::Municipality;
+use crate::utils;
 
 /// Review status for one grid cell.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub struct CellProgress {
 }
 
 /// Progress for one full review round.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReviewProgress {
     #[serde(default)]
     pub round_id: String,
@@ -31,7 +31,7 @@ pub struct ReviewProgress {
 
 impl ReviewProgress {
     pub fn new(cells: &[String]) -> Self {
-        Self::with_round_id(cells, now_id())
+        Self::with_round_id(cells, utils::now_id())
     }
 
     pub fn with_round_id(cells: &[String], round_id: String) -> Self {
@@ -50,7 +50,7 @@ impl ReviewProgress {
         self.cells.retain(|number, _| cells.iter().any(|cell| cell == number));
 
         for cell in cells {
-            self.cells.entry(cell.clone()).or_insert_with(CellProgress::default);
+            self.cells.entry(cell.clone()).or_default();
         }
     }
 
@@ -97,52 +97,20 @@ pub fn load(path: &Path) -> Result<Option<ReviewProgress>, String> {
 }
 
 pub fn save(path: &Path, progress: &ReviewProgress) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-
-    let text = serde_json::to_string_pretty(progress).map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("json.tmp");
-
-    fs::write(&temporary, text).map_err(|error| error.to_string())?;
-    fs::rename(&temporary, path).map_err(|error| error.to_string())?;
-
-    Ok(())
-}
-
-fn now_id() -> String {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
-        .unwrap_or_default()
+    utils::save_json(path, progress, true).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use crate::utils::test_support::TempDir;
 
     use super::*;
 
-    static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    fn temp_dir(label: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "lacuna-progress-test-{label}-{}-{}",
-            std::process::id(),
-            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).expect("failed to create test directory");
-
-        path
-    }
-
     #[test]
     fn progress_round_trip_and_rules() {
-        let dir = temp_dir("round-trip");
+        let dir = TempDir::new("progress", "round-trip");
         let path = dir.join("progress.json");
 
         let mut progress = ReviewProgress::new(&["01_00".to_string(), "02_00".to_string()]);
@@ -172,7 +140,5 @@ mod tests {
         assert!(text.contains("\"buildings\""));
         assert!(text.contains("\"addresses\""));
         assert!(text.contains("review notes"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

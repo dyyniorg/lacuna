@@ -6,19 +6,11 @@
 //! Codes are the official three-digit municipality numbers. Names are in
 //! Finnish.
 
-use std::fmt::Display;
-
 /// One municipality from the Statistics Finland classification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Municipality {
     pub code: &'static str,
     pub name: &'static str,
-}
-
-impl Display for Municipality {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} ({})", self.name, self.code)
-    }
 }
 
 impl Municipality {
@@ -38,1240 +30,320 @@ impl Municipality {
     }
 }
 
+const fn entry(code: &'static str, name: &'static str) -> Municipality {
+    Municipality { code, name }
+}
+
 /// All 308 municipalities in the 2026 classification.
 pub const MUNICIPALITIES: &[Municipality] = &[
-    Municipality {
-        code: "020",
-        name: "Akaa",
-    },
-    Municipality {
-        code: "005",
-        name: "Alajärvi",
-    },
-    Municipality {
-        code: "009",
-        name: "Alavieska",
-    },
-    Municipality {
-        code: "010",
-        name: "Alavus",
-    },
-    Municipality {
-        code: "016",
-        name: "Asikkala",
-    },
-    Municipality {
-        code: "018",
-        name: "Askola",
-    },
-    Municipality {
-        code: "019",
-        name: "Aura",
-    },
-    Municipality {
-        code: "035",
-        name: "Brändö",
-    },
-    Municipality {
-        code: "043",
-        name: "Eckerö",
-    },
-    Municipality {
-        code: "046",
-        name: "Enonkoski",
-    },
-    Municipality {
-        code: "047",
-        name: "Enontekiö",
-    },
-    Municipality {
-        code: "049",
-        name: "Espoo",
-    },
-    Municipality {
-        code: "050",
-        name: "Eura",
-    },
-    Municipality {
-        code: "051",
-        name: "Eurajoki",
-    },
-    Municipality {
-        code: "052",
-        name: "Evijärvi",
-    },
-    Municipality {
-        code: "060",
-        name: "Finström",
-    },
-    Municipality {
-        code: "061",
-        name: "Forssa",
-    },
-    Municipality {
-        code: "062",
-        name: "Föglö",
-    },
-    Municipality {
-        code: "065",
-        name: "Geta",
-    },
-    Municipality {
-        code: "069",
-        name: "Haapajärvi",
-    },
-    Municipality {
-        code: "071",
-        name: "Haapavesi",
-    },
-    Municipality {
-        code: "072",
-        name: "Hailuoto",
-    },
-    Municipality {
-        code: "074",
-        name: "Halsua",
-    },
-    Municipality {
-        code: "075",
-        name: "Hamina",
-    },
-    Municipality {
-        code: "076",
-        name: "Hammarland",
-    },
-    Municipality {
-        code: "077",
-        name: "Hankasalmi",
-    },
-    Municipality {
-        code: "078",
-        name: "Hanko",
-    },
-    Municipality {
-        code: "079",
-        name: "Harjavalta",
-    },
-    Municipality {
-        code: "081",
-        name: "Hartola",
-    },
-    Municipality {
-        code: "082",
-        name: "Hattula",
-    },
-    Municipality {
-        code: "086",
-        name: "Hausjärvi",
-    },
-    Municipality {
-        code: "111",
-        name: "Heinola",
-    },
-    Municipality {
-        code: "090",
-        name: "Heinävesi",
-    },
-    Municipality {
-        code: "091",
-        name: "Helsinki",
-    },
-    Municipality {
-        code: "097",
-        name: "Hirvensalmi",
-    },
-    Municipality {
-        code: "098",
-        name: "Hollola",
-    },
-    Municipality {
-        code: "102",
-        name: "Huittinen",
-    },
-    Municipality {
-        code: "103",
-        name: "Humppila",
-    },
-    Municipality {
-        code: "105",
-        name: "Hyrynsalmi",
-    },
-    Municipality {
-        code: "106",
-        name: "Hyvinkää",
-    },
-    Municipality {
-        code: "108",
-        name: "Hämeenkyrö",
-    },
-    Municipality {
-        code: "109",
-        name: "Hämeenlinna",
-    },
-    Municipality {
-        code: "139",
-        name: "Ii",
-    },
-    Municipality {
-        code: "140",
-        name: "Iisalmi",
-    },
-    Municipality {
-        code: "142",
-        name: "Iitti",
-    },
-    Municipality {
-        code: "143",
-        name: "Ikaalinen",
-    },
-    Municipality {
-        code: "145",
-        name: "Ilmajoki",
-    },
-    Municipality {
-        code: "146",
-        name: "Ilomantsi",
-    },
-    Municipality {
-        code: "153",
-        name: "Imatra",
-    },
-    Municipality {
-        code: "148",
-        name: "Inari",
-    },
-    Municipality {
-        code: "149",
-        name: "Inkoo",
-    },
-    Municipality {
-        code: "151",
-        name: "Isojoki",
-    },
-    Municipality {
-        code: "152",
-        name: "Isokyrö",
-    },
-    Municipality {
-        code: "165",
-        name: "Janakkala",
-    },
-    Municipality {
-        code: "167",
-        name: "Joensuu",
-    },
-    Municipality {
-        code: "169",
-        name: "Jokioinen",
-    },
-    Municipality {
-        code: "170",
-        name: "Jomala",
-    },
-    Municipality {
-        code: "171",
-        name: "Joroinen",
-    },
-    Municipality {
-        code: "172",
-        name: "Joutsa",
-    },
-    Municipality {
-        code: "176",
-        name: "Juuka",
-    },
-    Municipality {
-        code: "177",
-        name: "Juupajoki",
-    },
-    Municipality {
-        code: "178",
-        name: "Juva",
-    },
-    Municipality {
-        code: "179",
-        name: "Jyväskylä",
-    },
-    Municipality {
-        code: "181",
-        name: "Jämijärvi",
-    },
-    Municipality {
-        code: "182",
-        name: "Jämsä",
-    },
-    Municipality {
-        code: "186",
-        name: "Järvenpää",
-    },
-    Municipality {
-        code: "202",
-        name: "Kaarina",
-    },
-    Municipality {
-        code: "204",
-        name: "Kaavi",
-    },
-    Municipality {
-        code: "205",
-        name: "Kajaani",
-    },
-    Municipality {
-        code: "208",
-        name: "Kalajoki",
-    },
-    Municipality {
-        code: "211",
-        name: "Kangasala",
-    },
-    Municipality {
-        code: "213",
-        name: "Kangasniemi",
-    },
-    Municipality {
-        code: "214",
-        name: "Kankaanpää",
-    },
-    Municipality {
-        code: "216",
-        name: "Kannonkoski",
-    },
-    Municipality {
-        code: "217",
-        name: "Kannus",
-    },
-    Municipality {
-        code: "218",
-        name: "Karijoki",
-    },
-    Municipality {
-        code: "224",
-        name: "Karkkila",
-    },
-    Municipality {
-        code: "226",
-        name: "Karstula",
-    },
-    Municipality {
-        code: "230",
-        name: "Karvia",
-    },
-    Municipality {
-        code: "231",
-        name: "Kaskinen",
-    },
-    Municipality {
-        code: "232",
-        name: "Kauhajoki",
-    },
-    Municipality {
-        code: "233",
-        name: "Kauhava",
-    },
-    Municipality {
-        code: "235",
-        name: "Kauniainen",
-    },
-    Municipality {
-        code: "236",
-        name: "Kaustinen",
-    },
-    Municipality {
-        code: "239",
-        name: "Keitele",
-    },
-    Municipality {
-        code: "240",
-        name: "Kemi",
-    },
-    Municipality {
-        code: "320",
-        name: "Kemijärvi",
-    },
-    Municipality {
-        code: "241",
-        name: "Keminmaa",
-    },
-    Municipality {
-        code: "322",
-        name: "Kemiönsaari",
-    },
-    Municipality {
-        code: "244",
-        name: "Kempele",
-    },
-    Municipality {
-        code: "245",
-        name: "Kerava",
-    },
-    Municipality {
-        code: "249",
-        name: "Keuruu",
-    },
-    Municipality {
-        code: "250",
-        name: "Kihniö",
-    },
-    Municipality {
-        code: "256",
-        name: "Kinnula",
-    },
-    Municipality {
-        code: "257",
-        name: "Kirkkonummi",
-    },
-    Municipality {
-        code: "260",
-        name: "Kitee",
-    },
-    Municipality {
-        code: "261",
-        name: "Kittilä",
-    },
-    Municipality {
-        code: "263",
-        name: "Kiuruvesi",
-    },
-    Municipality {
-        code: "265",
-        name: "Kivijärvi",
-    },
-    Municipality {
-        code: "271",
-        name: "Kokemäki",
-    },
-    Municipality {
-        code: "272",
-        name: "Kokkola",
-    },
-    Municipality {
-        code: "273",
-        name: "Kolari",
-    },
-    Municipality {
-        code: "275",
-        name: "Konnevesi",
-    },
-    Municipality {
-        code: "276",
-        name: "Kontiolahti",
-    },
-    Municipality {
-        code: "280",
-        name: "Korsnäs",
-    },
-    Municipality {
-        code: "284",
-        name: "Koski Tl",
-    },
-    Municipality {
-        code: "285",
-        name: "Kotka",
-    },
-    Municipality {
-        code: "286",
-        name: "Kouvola",
-    },
-    Municipality {
-        code: "287",
-        name: "Kristiinankaupunki",
-    },
-    Municipality {
-        code: "288",
-        name: "Kruunupyy",
-    },
-    Municipality {
-        code: "290",
-        name: "Kuhmo",
-    },
-    Municipality {
-        code: "291",
-        name: "Kuhmoinen",
-    },
-    Municipality {
-        code: "295",
-        name: "Kumlinge",
-    },
-    Municipality {
-        code: "297",
-        name: "Kuopio",
-    },
-    Municipality {
-        code: "300",
-        name: "Kuortane",
-    },
-    Municipality {
-        code: "301",
-        name: "Kurikka",
-    },
-    Municipality {
-        code: "304",
-        name: "Kustavi",
-    },
-    Municipality {
-        code: "305",
-        name: "Kuusamo",
-    },
-    Municipality {
-        code: "312",
-        name: "Kyyjärvi",
-    },
-    Municipality {
-        code: "316",
-        name: "Kärkölä",
-    },
-    Municipality {
-        code: "317",
-        name: "Kärsämäki",
-    },
-    Municipality {
-        code: "318",
-        name: "Kökar",
-    },
-    Municipality {
-        code: "398",
-        name: "Lahti",
-    },
-    Municipality {
-        code: "399",
-        name: "Laihia",
-    },
-    Municipality {
-        code: "400",
-        name: "Laitila",
-    },
-    Municipality {
-        code: "407",
-        name: "Lapinjärvi",
-    },
-    Municipality {
-        code: "402",
-        name: "Lapinlahti",
-    },
-    Municipality {
-        code: "403",
-        name: "Lappajärvi",
-    },
-    Municipality {
-        code: "405",
-        name: "Lappeenranta",
-    },
-    Municipality {
-        code: "408",
-        name: "Lapua",
-    },
-    Municipality {
-        code: "410",
-        name: "Laukaa",
-    },
-    Municipality {
-        code: "416",
-        name: "Lemi",
-    },
-    Municipality {
-        code: "417",
-        name: "Lemland",
-    },
-    Municipality {
-        code: "418",
-        name: "Lempäälä",
-    },
-    Municipality {
-        code: "420",
-        name: "Leppävirta",
-    },
-    Municipality {
-        code: "421",
-        name: "Lestijärvi",
-    },
-    Municipality {
-        code: "422",
-        name: "Lieksa",
-    },
-    Municipality {
-        code: "423",
-        name: "Lieto",
-    },
-    Municipality {
-        code: "425",
-        name: "Liminka",
-    },
-    Municipality {
-        code: "426",
-        name: "Liperi",
-    },
-    Municipality {
-        code: "444",
-        name: "Lohja",
-    },
-    Municipality {
-        code: "430",
-        name: "Loimaa",
-    },
-    Municipality {
-        code: "433",
-        name: "Loppi",
-    },
-    Municipality {
-        code: "434",
-        name: "Loviisa",
-    },
-    Municipality {
-        code: "435",
-        name: "Luhanka",
-    },
-    Municipality {
-        code: "436",
-        name: "Lumijoki",
-    },
-    Municipality {
-        code: "438",
-        name: "Lumparland",
-    },
-    Municipality {
-        code: "440",
-        name: "Luoto",
-    },
-    Municipality {
-        code: "441",
-        name: "Luumäki",
-    },
-    Municipality {
-        code: "475",
-        name: "Maalahti",
-    },
-    Municipality {
-        code: "478",
-        name: "Maarianhamina - Mariehamn",
-    },
-    Municipality {
-        code: "480",
-        name: "Marttila",
-    },
-    Municipality {
-        code: "481",
-        name: "Masku",
-    },
-    Municipality {
-        code: "483",
-        name: "Merijärvi",
-    },
-    Municipality {
-        code: "484",
-        name: "Merikarvia",
-    },
-    Municipality {
-        code: "489",
-        name: "Miehikkälä",
-    },
-    Municipality {
-        code: "491",
-        name: "Mikkeli",
-    },
-    Municipality {
-        code: "494",
-        name: "Muhos",
-    },
-    Municipality {
-        code: "495",
-        name: "Multia",
-    },
-    Municipality {
-        code: "498",
-        name: "Muonio",
-    },
-    Municipality {
-        code: "499",
-        name: "Mustasaari",
-    },
-    Municipality {
-        code: "500",
-        name: "Muurame",
-    },
-    Municipality {
-        code: "503",
-        name: "Mynämäki",
-    },
-    Municipality {
-        code: "504",
-        name: "Myrskylä",
-    },
-    Municipality {
-        code: "505",
-        name: "Mäntsälä",
-    },
-    Municipality {
-        code: "508",
-        name: "Mänttä-Vilppula",
-    },
-    Municipality {
-        code: "507",
-        name: "Mäntyharju",
-    },
-    Municipality {
-        code: "529",
-        name: "Naantali",
-    },
-    Municipality {
-        code: "531",
-        name: "Nakkila",
-    },
-    Municipality {
-        code: "535",
-        name: "Nivala",
-    },
-    Municipality {
-        code: "536",
-        name: "Nokia",
-    },
-    Municipality {
-        code: "538",
-        name: "Nousiainen",
-    },
-    Municipality {
-        code: "541",
-        name: "Nurmes",
-    },
-    Municipality {
-        code: "543",
-        name: "Nurmijärvi",
-    },
-    Municipality {
-        code: "545",
-        name: "Närpiö",
-    },
-    Municipality {
-        code: "560",
-        name: "Orimattila",
-    },
-    Municipality {
-        code: "561",
-        name: "Oripää",
-    },
-    Municipality {
-        code: "562",
-        name: "Orivesi",
-    },
-    Municipality {
-        code: "563",
-        name: "Oulainen",
-    },
-    Municipality {
-        code: "564",
-        name: "Oulu",
-    },
-    Municipality {
-        code: "309",
-        name: "Outokumpu",
-    },
-    Municipality {
-        code: "576",
-        name: "Padasjoki",
-    },
-    Municipality {
-        code: "577",
-        name: "Paimio",
-    },
-    Municipality {
-        code: "578",
-        name: "Paltamo",
-    },
-    Municipality {
-        code: "445",
-        name: "Parainen",
-    },
-    Municipality {
-        code: "580",
-        name: "Parikkala",
-    },
-    Municipality {
-        code: "581",
-        name: "Parkano",
-    },
-    Municipality {
-        code: "599",
-        name: "Pedersören kunta",
-    },
-    Municipality {
-        code: "583",
-        name: "Pelkosenniemi",
-    },
-    Municipality {
-        code: "854",
-        name: "Pello",
-    },
-    Municipality {
-        code: "584",
-        name: "Perho",
-    },
-    Municipality {
-        code: "592",
-        name: "Petäjävesi",
-    },
-    Municipality {
-        code: "593",
-        name: "Pieksämäki",
-    },
-    Municipality {
-        code: "595",
-        name: "Pielavesi",
-    },
-    Municipality {
-        code: "598",
-        name: "Pietarsaari",
-    },
-    Municipality {
-        code: "601",
-        name: "Pihtipudas",
-    },
-    Municipality {
-        code: "604",
-        name: "Pirkkala",
-    },
-    Municipality {
-        code: "607",
-        name: "Polvijärvi",
-    },
-    Municipality {
-        code: "608",
-        name: "Pomarkku",
-    },
-    Municipality {
-        code: "609",
-        name: "Pori",
-    },
-    Municipality {
-        code: "611",
-        name: "Pornainen",
-    },
-    Municipality {
-        code: "638",
-        name: "Porvoo",
-    },
-    Municipality {
-        code: "614",
-        name: "Posio",
-    },
-    Municipality {
-        code: "615",
-        name: "Pudasjärvi",
-    },
-    Municipality {
-        code: "616",
-        name: "Pukkila",
-    },
-    Municipality {
-        code: "619",
-        name: "Punkalaidun",
-    },
-    Municipality {
-        code: "620",
-        name: "Puolanka",
-    },
-    Municipality {
-        code: "623",
-        name: "Puumala",
-    },
-    Municipality {
-        code: "624",
-        name: "Pyhtää",
-    },
-    Municipality {
-        code: "625",
-        name: "Pyhäjoki",
-    },
-    Municipality {
-        code: "626",
-        name: "Pyhäjärvi",
-    },
-    Municipality {
-        code: "630",
-        name: "Pyhäntä",
-    },
-    Municipality {
-        code: "631",
-        name: "Pyhäranta",
-    },
-    Municipality {
-        code: "635",
-        name: "Pälkäne",
-    },
-    Municipality {
-        code: "636",
-        name: "Pöytyä",
-    },
-    Municipality {
-        code: "678",
-        name: "Raahe",
-    },
-    Municipality {
-        code: "710",
-        name: "Raasepori",
-    },
-    Municipality {
-        code: "680",
-        name: "Raisio",
-    },
-    Municipality {
-        code: "681",
-        name: "Rantasalmi",
-    },
-    Municipality {
-        code: "683",
-        name: "Ranua",
-    },
-    Municipality {
-        code: "684",
-        name: "Rauma",
-    },
-    Municipality {
-        code: "686",
-        name: "Rautalampi",
-    },
-    Municipality {
-        code: "687",
-        name: "Rautavaara",
-    },
-    Municipality {
-        code: "689",
-        name: "Rautjärvi",
-    },
-    Municipality {
-        code: "691",
-        name: "Reisjärvi",
-    },
-    Municipality {
-        code: "694",
-        name: "Riihimäki",
-    },
-    Municipality {
-        code: "697",
-        name: "Ristijärvi",
-    },
-    Municipality {
-        code: "698",
-        name: "Rovaniemi",
-    },
-    Municipality {
-        code: "700",
-        name: "Ruokolahti",
-    },
-    Municipality {
-        code: "702",
-        name: "Ruovesi",
-    },
-    Municipality {
-        code: "704",
-        name: "Rusko",
-    },
-    Municipality {
-        code: "707",
-        name: "Rääkkylä",
-    },
-    Municipality {
-        code: "729",
-        name: "Saarijärvi",
-    },
-    Municipality {
-        code: "732",
-        name: "Salla",
-    },
-    Municipality {
-        code: "734",
-        name: "Salo",
-    },
-    Municipality {
-        code: "736",
-        name: "Saltvik",
-    },
-    Municipality {
-        code: "790",
-        name: "Sastamala",
-    },
-    Municipality {
-        code: "738",
-        name: "Sauvo",
-    },
-    Municipality {
-        code: "739",
-        name: "Savitaipale",
-    },
-    Municipality {
-        code: "740",
-        name: "Savonlinna",
-    },
-    Municipality {
-        code: "742",
-        name: "Savukoski",
-    },
-    Municipality {
-        code: "743",
-        name: "Seinäjoki",
-    },
-    Municipality {
-        code: "746",
-        name: "Sievi",
-    },
-    Municipality {
-        code: "747",
-        name: "Siikainen",
-    },
-    Municipality {
-        code: "748",
-        name: "Siikajoki",
-    },
-    Municipality {
-        code: "791",
-        name: "Siikalatva",
-    },
-    Municipality {
-        code: "749",
-        name: "Siilinjärvi",
-    },
-    Municipality {
-        code: "751",
-        name: "Simo",
-    },
-    Municipality {
-        code: "753",
-        name: "Sipoo",
-    },
-    Municipality {
-        code: "755",
-        name: "Siuntio",
-    },
-    Municipality {
-        code: "758",
-        name: "Sodankylä",
-    },
-    Municipality {
-        code: "759",
-        name: "Soini",
-    },
-    Municipality {
-        code: "761",
-        name: "Somero",
-    },
-    Municipality {
-        code: "762",
-        name: "Sonkajärvi",
-    },
-    Municipality {
-        code: "765",
-        name: "Sotkamo",
-    },
-    Municipality {
-        code: "766",
-        name: "Sottunga",
-    },
-    Municipality {
-        code: "768",
-        name: "Sulkava",
-    },
-    Municipality {
-        code: "771",
-        name: "Sund",
-    },
-    Municipality {
-        code: "777",
-        name: "Suomussalmi",
-    },
-    Municipality {
-        code: "778",
-        name: "Suonenjoki",
-    },
-    Municipality {
-        code: "781",
-        name: "Sysmä",
-    },
-    Municipality {
-        code: "783",
-        name: "Säkylä",
-    },
-    Municipality {
-        code: "831",
-        name: "Taipalsaari",
-    },
-    Municipality {
-        code: "832",
-        name: "Taivalkoski",
-    },
-    Municipality {
-        code: "833",
-        name: "Taivassalo",
-    },
-    Municipality {
-        code: "834",
-        name: "Tammela",
-    },
-    Municipality {
-        code: "837",
-        name: "Tampere",
-    },
-    Municipality {
-        code: "844",
-        name: "Tervo",
-    },
-    Municipality {
-        code: "845",
-        name: "Tervola",
-    },
-    Municipality {
-        code: "846",
-        name: "Teuva",
-    },
-    Municipality {
-        code: "848",
-        name: "Tohmajärvi",
-    },
-    Municipality {
-        code: "849",
-        name: "Toholampi",
-    },
-    Municipality {
-        code: "850",
-        name: "Toivakka",
-    },
-    Municipality {
-        code: "851",
-        name: "Tornio",
-    },
-    Municipality {
-        code: "853",
-        name: "Turku",
-    },
-    Municipality {
-        code: "857",
-        name: "Tuusniemi",
-    },
-    Municipality {
-        code: "858",
-        name: "Tuusula",
-    },
-    Municipality {
-        code: "859",
-        name: "Tyrnävä",
-    },
-    Municipality {
-        code: "886",
-        name: "Ulvila",
-    },
-    Municipality {
-        code: "887",
-        name: "Urjala",
-    },
-    Municipality {
-        code: "889",
-        name: "Utajärvi",
-    },
-    Municipality {
-        code: "890",
-        name: "Utsjoki",
-    },
-    Municipality {
-        code: "892",
-        name: "Uurainen",
-    },
-    Municipality {
-        code: "893",
-        name: "Uusikaarlepyy",
-    },
-    Municipality {
-        code: "895",
-        name: "Uusikaupunki",
-    },
-    Municipality {
-        code: "785",
-        name: "Vaala",
-    },
-    Municipality {
-        code: "905",
-        name: "Vaasa",
-    },
-    Municipality {
-        code: "908",
-        name: "Valkeakoski",
-    },
-    Municipality {
-        code: "092",
-        name: "Vantaa",
-    },
-    Municipality {
-        code: "915",
-        name: "Varkaus",
-    },
-    Municipality {
-        code: "918",
-        name: "Vehmaa",
-    },
-    Municipality {
-        code: "921",
-        name: "Vesanto",
-    },
-    Municipality {
-        code: "922",
-        name: "Vesilahti",
-    },
-    Municipality {
-        code: "924",
-        name: "Veteli",
-    },
-    Municipality {
-        code: "925",
-        name: "Vieremä",
-    },
-    Municipality {
-        code: "927",
-        name: "Vihti",
-    },
-    Municipality {
-        code: "931",
-        name: "Viitasaari",
-    },
-    Municipality {
-        code: "934",
-        name: "Vimpeli",
-    },
-    Municipality {
-        code: "935",
-        name: "Virolahti",
-    },
-    Municipality {
-        code: "936",
-        name: "Virrat",
-    },
-    Municipality {
-        code: "941",
-        name: "Vårdö",
-    },
-    Municipality {
-        code: "946",
-        name: "Vöyri",
-    },
-    Municipality {
-        code: "976",
-        name: "Ylitornio",
-    },
-    Municipality {
-        code: "977",
-        name: "Ylivieska",
-    },
-    Municipality {
-        code: "980",
-        name: "Ylöjärvi",
-    },
-    Municipality {
-        code: "981",
-        name: "Ypäjä",
-    },
-    Municipality {
-        code: "989",
-        name: "Ähtäri",
-    },
-    Municipality {
-        code: "992",
-        name: "Äänekoski",
-    },
+    entry("020", "Akaa"),
+    entry("005", "Alajärvi"),
+    entry("009", "Alavieska"),
+    entry("010", "Alavus"),
+    entry("016", "Asikkala"),
+    entry("018", "Askola"),
+    entry("019", "Aura"),
+    entry("035", "Brändö"),
+    entry("043", "Eckerö"),
+    entry("046", "Enonkoski"),
+    entry("047", "Enontekiö"),
+    entry("049", "Espoo"),
+    entry("050", "Eura"),
+    entry("051", "Eurajoki"),
+    entry("052", "Evijärvi"),
+    entry("060", "Finström"),
+    entry("061", "Forssa"),
+    entry("062", "Föglö"),
+    entry("065", "Geta"),
+    entry("069", "Haapajärvi"),
+    entry("071", "Haapavesi"),
+    entry("072", "Hailuoto"),
+    entry("074", "Halsua"),
+    entry("075", "Hamina"),
+    entry("076", "Hammarland"),
+    entry("077", "Hankasalmi"),
+    entry("078", "Hanko"),
+    entry("079", "Harjavalta"),
+    entry("081", "Hartola"),
+    entry("082", "Hattula"),
+    entry("086", "Hausjärvi"),
+    entry("111", "Heinola"),
+    entry("090", "Heinävesi"),
+    entry("091", "Helsinki"),
+    entry("097", "Hirvensalmi"),
+    entry("098", "Hollola"),
+    entry("102", "Huittinen"),
+    entry("103", "Humppila"),
+    entry("105", "Hyrynsalmi"),
+    entry("106", "Hyvinkää"),
+    entry("108", "Hämeenkyrö"),
+    entry("109", "Hämeenlinna"),
+    entry("139", "Ii"),
+    entry("140", "Iisalmi"),
+    entry("142", "Iitti"),
+    entry("143", "Ikaalinen"),
+    entry("145", "Ilmajoki"),
+    entry("146", "Ilomantsi"),
+    entry("153", "Imatra"),
+    entry("148", "Inari"),
+    entry("149", "Inkoo"),
+    entry("151", "Isojoki"),
+    entry("152", "Isokyrö"),
+    entry("165", "Janakkala"),
+    entry("167", "Joensuu"),
+    entry("169", "Jokioinen"),
+    entry("170", "Jomala"),
+    entry("171", "Joroinen"),
+    entry("172", "Joutsa"),
+    entry("176", "Juuka"),
+    entry("177", "Juupajoki"),
+    entry("178", "Juva"),
+    entry("179", "Jyväskylä"),
+    entry("181", "Jämijärvi"),
+    entry("182", "Jämsä"),
+    entry("186", "Järvenpää"),
+    entry("202", "Kaarina"),
+    entry("204", "Kaavi"),
+    entry("205", "Kajaani"),
+    entry("208", "Kalajoki"),
+    entry("211", "Kangasala"),
+    entry("213", "Kangasniemi"),
+    entry("214", "Kankaanpää"),
+    entry("216", "Kannonkoski"),
+    entry("217", "Kannus"),
+    entry("218", "Karijoki"),
+    entry("224", "Karkkila"),
+    entry("226", "Karstula"),
+    entry("230", "Karvia"),
+    entry("231", "Kaskinen"),
+    entry("232", "Kauhajoki"),
+    entry("233", "Kauhava"),
+    entry("235", "Kauniainen"),
+    entry("236", "Kaustinen"),
+    entry("239", "Keitele"),
+    entry("240", "Kemi"),
+    entry("320", "Kemijärvi"),
+    entry("241", "Keminmaa"),
+    entry("322", "Kemiönsaari"),
+    entry("244", "Kempele"),
+    entry("245", "Kerava"),
+    entry("249", "Keuruu"),
+    entry("250", "Kihniö"),
+    entry("256", "Kinnula"),
+    entry("257", "Kirkkonummi"),
+    entry("260", "Kitee"),
+    entry("261", "Kittilä"),
+    entry("263", "Kiuruvesi"),
+    entry("265", "Kivijärvi"),
+    entry("271", "Kokemäki"),
+    entry("272", "Kokkola"),
+    entry("273", "Kolari"),
+    entry("275", "Konnevesi"),
+    entry("276", "Kontiolahti"),
+    entry("280", "Korsnäs"),
+    entry("284", "Koski Tl"),
+    entry("285", "Kotka"),
+    entry("286", "Kouvola"),
+    entry("287", "Kristiinankaupunki"),
+    entry("288", "Kruunupyy"),
+    entry("290", "Kuhmo"),
+    entry("291", "Kuhmoinen"),
+    entry("295", "Kumlinge"),
+    entry("297", "Kuopio"),
+    entry("300", "Kuortane"),
+    entry("301", "Kurikka"),
+    entry("304", "Kustavi"),
+    entry("305", "Kuusamo"),
+    entry("312", "Kyyjärvi"),
+    entry("316", "Kärkölä"),
+    entry("317", "Kärsämäki"),
+    entry("318", "Kökar"),
+    entry("398", "Lahti"),
+    entry("399", "Laihia"),
+    entry("400", "Laitila"),
+    entry("407", "Lapinjärvi"),
+    entry("402", "Lapinlahti"),
+    entry("403", "Lappajärvi"),
+    entry("405", "Lappeenranta"),
+    entry("408", "Lapua"),
+    entry("410", "Laukaa"),
+    entry("416", "Lemi"),
+    entry("417", "Lemland"),
+    entry("418", "Lempäälä"),
+    entry("420", "Leppävirta"),
+    entry("421", "Lestijärvi"),
+    entry("422", "Lieksa"),
+    entry("423", "Lieto"),
+    entry("425", "Liminka"),
+    entry("426", "Liperi"),
+    entry("444", "Lohja"),
+    entry("430", "Loimaa"),
+    entry("433", "Loppi"),
+    entry("434", "Loviisa"),
+    entry("435", "Luhanka"),
+    entry("436", "Lumijoki"),
+    entry("438", "Lumparland"),
+    entry("440", "Luoto"),
+    entry("441", "Luumäki"),
+    entry("475", "Maalahti"),
+    entry("478", "Maarianhamina - Mariehamn"),
+    entry("480", "Marttila"),
+    entry("481", "Masku"),
+    entry("483", "Merijärvi"),
+    entry("484", "Merikarvia"),
+    entry("489", "Miehikkälä"),
+    entry("491", "Mikkeli"),
+    entry("494", "Muhos"),
+    entry("495", "Multia"),
+    entry("498", "Muonio"),
+    entry("499", "Mustasaari"),
+    entry("500", "Muurame"),
+    entry("503", "Mynämäki"),
+    entry("504", "Myrskylä"),
+    entry("505", "Mäntsälä"),
+    entry("508", "Mänttä-Vilppula"),
+    entry("507", "Mäntyharju"),
+    entry("529", "Naantali"),
+    entry("531", "Nakkila"),
+    entry("535", "Nivala"),
+    entry("536", "Nokia"),
+    entry("538", "Nousiainen"),
+    entry("541", "Nurmes"),
+    entry("543", "Nurmijärvi"),
+    entry("545", "Närpiö"),
+    entry("560", "Orimattila"),
+    entry("561", "Oripää"),
+    entry("562", "Orivesi"),
+    entry("563", "Oulainen"),
+    entry("564", "Oulu"),
+    entry("309", "Outokumpu"),
+    entry("576", "Padasjoki"),
+    entry("577", "Paimio"),
+    entry("578", "Paltamo"),
+    entry("445", "Parainen"),
+    entry("580", "Parikkala"),
+    entry("581", "Parkano"),
+    entry("599", "Pedersören kunta"),
+    entry("583", "Pelkosenniemi"),
+    entry("854", "Pello"),
+    entry("584", "Perho"),
+    entry("592", "Petäjävesi"),
+    entry("593", "Pieksämäki"),
+    entry("595", "Pielavesi"),
+    entry("598", "Pietarsaari"),
+    entry("601", "Pihtipudas"),
+    entry("604", "Pirkkala"),
+    entry("607", "Polvijärvi"),
+    entry("608", "Pomarkku"),
+    entry("609", "Pori"),
+    entry("611", "Pornainen"),
+    entry("638", "Porvoo"),
+    entry("614", "Posio"),
+    entry("615", "Pudasjärvi"),
+    entry("616", "Pukkila"),
+    entry("619", "Punkalaidun"),
+    entry("620", "Puolanka"),
+    entry("623", "Puumala"),
+    entry("624", "Pyhtää"),
+    entry("625", "Pyhäjoki"),
+    entry("626", "Pyhäjärvi"),
+    entry("630", "Pyhäntä"),
+    entry("631", "Pyhäranta"),
+    entry("635", "Pälkäne"),
+    entry("636", "Pöytyä"),
+    entry("678", "Raahe"),
+    entry("710", "Raasepori"),
+    entry("680", "Raisio"),
+    entry("681", "Rantasalmi"),
+    entry("683", "Ranua"),
+    entry("684", "Rauma"),
+    entry("686", "Rautalampi"),
+    entry("687", "Rautavaara"),
+    entry("689", "Rautjärvi"),
+    entry("691", "Reisjärvi"),
+    entry("694", "Riihimäki"),
+    entry("697", "Ristijärvi"),
+    entry("698", "Rovaniemi"),
+    entry("700", "Ruokolahti"),
+    entry("702", "Ruovesi"),
+    entry("704", "Rusko"),
+    entry("707", "Rääkkylä"),
+    entry("729", "Saarijärvi"),
+    entry("732", "Salla"),
+    entry("734", "Salo"),
+    entry("736", "Saltvik"),
+    entry("790", "Sastamala"),
+    entry("738", "Sauvo"),
+    entry("739", "Savitaipale"),
+    entry("740", "Savonlinna"),
+    entry("742", "Savukoski"),
+    entry("743", "Seinäjoki"),
+    entry("746", "Sievi"),
+    entry("747", "Siikainen"),
+    entry("748", "Siikajoki"),
+    entry("791", "Siikalatva"),
+    entry("749", "Siilinjärvi"),
+    entry("751", "Simo"),
+    entry("753", "Sipoo"),
+    entry("755", "Siuntio"),
+    entry("758", "Sodankylä"),
+    entry("759", "Soini"),
+    entry("761", "Somero"),
+    entry("762", "Sonkajärvi"),
+    entry("765", "Sotkamo"),
+    entry("766", "Sottunga"),
+    entry("768", "Sulkava"),
+    entry("771", "Sund"),
+    entry("777", "Suomussalmi"),
+    entry("778", "Suonenjoki"),
+    entry("781", "Sysmä"),
+    entry("783", "Säkylä"),
+    entry("831", "Taipalsaari"),
+    entry("832", "Taivalkoski"),
+    entry("833", "Taivassalo"),
+    entry("834", "Tammela"),
+    entry("837", "Tampere"),
+    entry("844", "Tervo"),
+    entry("845", "Tervola"),
+    entry("846", "Teuva"),
+    entry("848", "Tohmajärvi"),
+    entry("849", "Toholampi"),
+    entry("850", "Toivakka"),
+    entry("851", "Tornio"),
+    entry("853", "Turku"),
+    entry("857", "Tuusniemi"),
+    entry("858", "Tuusula"),
+    entry("859", "Tyrnävä"),
+    entry("886", "Ulvila"),
+    entry("887", "Urjala"),
+    entry("889", "Utajärvi"),
+    entry("890", "Utsjoki"),
+    entry("892", "Uurainen"),
+    entry("893", "Uusikaarlepyy"),
+    entry("895", "Uusikaupunki"),
+    entry("785", "Vaala"),
+    entry("905", "Vaasa"),
+    entry("908", "Valkeakoski"),
+    entry("092", "Vantaa"),
+    entry("915", "Varkaus"),
+    entry("918", "Vehmaa"),
+    entry("921", "Vesanto"),
+    entry("922", "Vesilahti"),
+    entry("924", "Veteli"),
+    entry("925", "Vieremä"),
+    entry("927", "Vihti"),
+    entry("931", "Viitasaari"),
+    entry("934", "Vimpeli"),
+    entry("935", "Virolahti"),
+    entry("936", "Virrat"),
+    entry("941", "Vårdö"),
+    entry("946", "Vöyri"),
+    entry("976", "Ylitornio"),
+    entry("977", "Ylivieska"),
+    entry("980", "Ylöjärvi"),
+    entry("981", "Ypäjä"),
+    entry("989", "Ähtäri"),
+    entry("992", "Äänekoski"),
 ];
 
 /// Looks up a municipality by its official code.

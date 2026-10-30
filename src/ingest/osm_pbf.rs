@@ -1,10 +1,8 @@
 //! Finland OSM PBF extract handling.
 
 use std::collections::HashMap;
-use std::fs;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use osmpbf::{Element, ElementReader};
 use reqwest::blocking::Client;
@@ -14,7 +12,7 @@ use crate::config::Municipality;
 
 use super::cache::Cache;
 use super::error::IngestError;
-use super::geo::{self, BBox};
+use super::geo::BBox;
 use super::http;
 use super::report::{Reporter, Stage};
 
@@ -29,38 +27,31 @@ pub fn ensure_extract(
 ) -> Result<PathBuf, IngestError> {
     let path = cache.pbf_path();
 
-    match fs::metadata(&path) {
-        Ok(metadata) => {
-            let age = metadata
-                .modified()
-                .ok()
-                .and_then(|modified| SystemTime::now().duration_since(modified).ok());
-
-            if let Some(age) = age {
-                if age < max_age {
-                    reporter.report(
-                        Stage::OsmExtract,
-                        format!("Using cached Finland extract ({} days old)", age.as_secs() / 86_400),
-                        Some(100),
-                    );
-                    return Ok(path);
-                }
-            }
-        }
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+    if let Some(age) = cache.age(&path)?
+        && age < max_age
+    {
+        reporter.report_percent(
+            Stage::OsmExtract,
+            format!("Using cached Finland extract ({} days old)", age.as_secs() / 86_400),
+            Some(100),
+        );
+        return Ok(path);
     }
 
-    reporter.report(Stage::OsmExtract, "Downloading the Finland OSM extract", Some(0));
+    reporter.report_percent(Stage::OsmExtract, "Downloading the Finland OSM extract", Some(0));
 
     http::download_file(client, GEOFABRIK_FINLAND, &path, |done, total| {
         let percent = total
             .filter(|total| *total > 0)
             .map(|total| ((done * 100) / total).min(100) as u8);
-        reporter.report(Stage::OsmExtract, format!("Downloaded {} MiB", done >> 20), percent);
+        reporter.report_percent(
+            Stage::OsmExtract,
+            format!("Downloaded {} MB", done / 1_000_000),
+            percent,
+        );
     })?;
 
-    reporter.report(Stage::OsmExtract, "Finland OSM extract is ready", Some(100));
+    reporter.report_percent(Stage::OsmExtract, "Finland OSM extract is ready", Some(100));
 
     Ok(path)
 }
@@ -69,28 +60,21 @@ pub fn ensure_extract(
 pub fn buildings(
     extract: &Path,
     municipality: &Municipality,
-    official: &Value,
+    bbox: &BBox,
     reporter: &Reporter,
 ) -> Result<Value, IngestError> {
-    let bbox = geo::bbox_of_points(official)?;
+    reporter.report(Stage::OsmBuildings, "Resolving OSM nodes inside the municipality bbox");
 
-    reporter.report(
-        Stage::OsmBuildings,
-        "Resolving OSM nodes inside the municipality bbox",
-        None,
-    );
+    let nodes = nodes_in_bbox(extract, bbox)?;
 
-    let nodes = nodes_in_bbox(extract, &bbox)?;
-
-    reporter.report(Stage::OsmBuildings, format!("Resolved {} OSM nodes", nodes.len()), None);
-    reporter.report(Stage::OsmBuildings, "Extracting OSM building ways", None);
+    reporter.report(Stage::OsmBuildings, format!("Resolved {} OSM nodes", nodes.len()));
+    reporter.report(Stage::OsmBuildings, "Extracting OSM building ways");
 
     let features = building_ways(extract, &nodes)?;
 
     reporter.report(
         Stage::OsmBuildings,
         format!("Extracted {} OSM building ways", features.len()),
-        Some(100),
     );
 
     Ok(json!({

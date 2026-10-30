@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use reqwest::blocking::Client;
 
-use crate::{PROG_NAME, VERSION, REPO_URL};
+use crate::{PROG_NAME, REPO_URL, VERSION};
 
 use super::error::IngestError;
 

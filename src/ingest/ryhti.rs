@@ -45,7 +45,7 @@ fn collection(
     stage: Stage,
     reporter: &Reporter,
 ) -> Result<Value, IngestError> {
-    reporter.report(stage, format!("Downloading {label} from Ryhti"), Some(0));
+    reporter.report(stage, format!("Downloading {label} from Ryhti"));
 
     let mut features: Vec<Value> = Vec::new();
     let mut url = format!(
@@ -65,35 +65,31 @@ fn collection(
                 reporter.report(
                     stage,
                     format!("Ryhti reports {total} {label} for {}", municipality.name),
-                    Some(0),
                 );
             }
         }
 
         let returned = page.get("numberReturned").and_then(Value::as_u64).unwrap_or(0);
 
-        if let Some(items) = page.get("features").and_then(Value::as_array) {
-            features.extend(items.iter().cloned());
-        }
-
-        let percent = total.and_then(|total| {
-            if total == 0 {
-                Some(100)
-            } else {
-                Some(((features.len() as u64 * 100) / total).min(100) as u8)
-            }
-        });
+        let items = page
+            .get("features")
+            .and_then(Value::as_array)
+            .ok_or_else(|| IngestError::InvalidData(format!("Ryhti {label} response has no features")))?;
+        features.extend(items.iter().cloned());
 
         reporter.report(
             stage,
             format!("Ryhti page of {returned} {label}, {} in total", features.len()),
-            percent,
         );
 
         let next = page
             .get("links")
             .and_then(Value::as_array)
-            .and_then(|links| links.iter().find(|link| link.get("rel") == Some(&json!("next"))))
+            .and_then(|links| {
+                links
+                    .iter()
+                    .find(|link| link.get("rel").and_then(Value::as_str) == Some("next"))
+            })
             .and_then(|link| link.get("href").and_then(Value::as_str));
 
         match next {
@@ -102,21 +98,12 @@ fn collection(
         }
     }
 
-    let feature_collection = json!({
+    reporter.report(stage, format!("Downloaded {} {label}", features.len()));
+
+    Ok(json!({
         "type": "FeatureCollection",
         "name": format!("{}_{}", municipality.slug(), name),
         "source": format!("Ryhti {collection}"),
         "features": features,
-    });
-
-    reporter.report(
-        stage,
-        format!(
-            "Downloaded {} {label}",
-            feature_collection["features"].as_array().map_or(0, Vec::len)
-        ),
-        Some(100),
-    );
-
-    Ok(feature_collection)
+    }))
 }

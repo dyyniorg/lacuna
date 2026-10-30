@@ -3,11 +3,11 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::Municipality;
+use crate::utils;
 
 use super::ReviewError;
 
@@ -38,24 +38,6 @@ pub fn load(cache_dir: &Path, municipality: &Municipality) -> Result<Option<Revi
 }
 
 pub fn save(cache_dir: &Path, municipality: &Municipality, state: &ReviewState) -> Result<(), ReviewError> {
-    let path = path(cache_dir, municipality);
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let text = serde_json::to_string_pretty(state)?;
-    let temporary = path.with_extension("json.tmp");
-
-    fs::write(&temporary, text)?;
-    fs::rename(&temporary, &path)?;
-
+    utils::save_json(&path(cache_dir, municipality), state, true)?;
     Ok(())
-}
-
-pub fn now_id() -> String {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs().to_string())
-        .unwrap_or_default()
 }

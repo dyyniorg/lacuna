@@ -22,9 +22,9 @@ use serde_json::Value;
 use crate::config::Municipality;
 use crate::utils;
 
-pub use cache::{Cache, CacheKind, CacheState};
+pub use cache::Cache;
 pub use error::IngestError;
-pub use geo::{BBox, bbox_of_points};
+pub use geo::{BBox, bbox_of_points, outer_rings, point_of_coordinates, point_of_feature};
 pub use report::{Progress, Reporter, Stage};
 
 /// All input data needed by the review stage.
@@ -66,99 +66,40 @@ impl IngestClient {
         self
     }
 
-    pub fn cache_state(&self, municipality: &Municipality) -> Result<CacheState, IngestError> {
-        let entries = vec![
-            self.cache
-                .entry(CacheKind::PbfExtract, self.cache.pbf_path(), self.cache_max_age)?,
-            self.cache.entry(
-                CacheKind::RyhtiBuildings,
-                self.cache.municipality_file(municipality, "ryhti_buildings.json"),
-                self.cache_max_age,
-            )?,
-            self.cache.entry(
-                CacheKind::RyhtiAddresses,
-                self.cache.municipality_file(municipality, "ryhti_addresses.json"),
-                self.cache_max_age,
-            )?,
-            self.cache.entry(
-                CacheKind::NlsFootprints,
-                self.cache.municipality_file(municipality, "nls_footprints.json"),
-                self.cache_max_age,
-            )?,
-            self.cache.entry(
-                CacheKind::Parcels,
-                self.cache.municipality_file(municipality, "parcels.json"),
-                self.cache_max_age,
-            )?,
-            self.cache.entry(
-                CacheKind::OsmBuildings,
-                self.cache.municipality_file(municipality, "osm_buildings.json"),
-                self.cache_max_age,
-            )?,
-        ];
-
-        Ok(CacheState { entries })
-    }
-
     pub fn ryhti_buildings(&self, municipality: &Municipality) -> Result<Value, IngestError> {
-        let path = self.cache.municipality_file(municipality, "ryhti_buildings.json");
-        self.cached_json(&path, Stage::RyhtiBuildings, "Ryhti buildings", || {
+        self.cached_json(municipality, Stage::RyhtiBuildings, "Ryhti buildings", None, || {
             ryhti::buildings(&self.http, municipality, &self.reporter)
         })
     }
 
     pub fn ryhti_addresses(&self, municipality: &Municipality) -> Result<Value, IngestError> {
-        let path = self.cache.municipality_file(municipality, "ryhti_addresses.json");
-        self.cached_json(&path, Stage::RyhtiAddresses, "Ryhti addresses", || {
+        self.cached_json(municipality, Stage::RyhtiAddresses, "Ryhti addresses", None, || {
             ryhti::addresses(&self.http, municipality, &self.reporter)
         })
     }
 
     pub fn nls_footprints(&self, municipality: &Municipality, bbox: &BBox) -> Result<Value, IngestError> {
-        let path = self.cache.municipality_file(municipality, "nls_footprints.json");
-        self.cached_json(&path, Stage::NlsFootprints, "NLS footprints", || {
+        self.cached_json(municipality, Stage::NlsFootprints, "NLS footprints", None, || {
             nls::footprints(&self.http, municipality, bbox, &self.reporter)
         })
     }
 
     pub fn parcels(&self, municipality: &Municipality, bbox: &BBox) -> Result<Value, IngestError> {
-        let path = self.cache.municipality_file(municipality, "parcels.json");
-        self.cached_json(&path, Stage::Parcels, "land parcels", || {
+        self.cached_json(municipality, Stage::Parcels, "land parcels", None, || {
             parcels::parcels(&self.http, municipality, bbox, &self.reporter)
         })
     }
 
-    pub fn osm_buildings(&self, municipality: &Municipality, official: &Value) -> Result<Value, IngestError> {
-        let path = self.cache.municipality_file(municipality, "osm_buildings.json");
+    pub fn osm_buildings(&self, municipality: &Municipality, bbox: &BBox) -> Result<Value, IngestError> {
         let extract = osm_pbf::ensure_extract(&self.download_http, &self.cache, self.cache_max_age, &self.reporter)?;
 
-        if self.cache.is_newer(&path, &extract)? && self.cache.is_fresh(&path, self.cache_max_age)? {
-            match self.cache.load_json(&path) {
-                Ok(Some(value)) => {
-                    self.reporter
-                        .report(Stage::OsmBuildings, "Using cached OSM buildings", Some(100));
-                    return Ok(value);
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    self.reporter.report(
-                        Stage::OsmBuildings,
-                        format!("Ignoring invalid OSM buildings cache: {error}"),
-                        None,
-                    );
-                }
-            }
-        }
-
-        let value = osm_pbf::buildings(&extract, municipality, official, &self.reporter)?;
-        self.cache.save_json(&path, &value)?;
-        self.reporter.report(
+        self.cached_json(
+            municipality,
             Stage::OsmBuildings,
-            format!("Saved OSM buildings to {}", path.display()),
-            Some(100),
-        );
-
-        Ok(value)
+            "OSM buildings",
+            Some(&extract),
+            || osm_pbf::buildings(&extract, municipality, bbox, &self.reporter),
+        )
     }
 
     pub fn fetch_all(&self, municipality: &Municipality) -> Result<IngestData, IngestError> {
@@ -169,7 +110,7 @@ impl IngestClient {
 
         let nls = self.nls_footprints(municipality, &bbox)?;
         let parcels = self.parcels(municipality, &bbox)?;
-        let osm = self.osm_buildings(municipality, &official)?;
+        let osm = self.osm_buildings(municipality, &bbox)?;
 
         Ok(IngestData {
             official,
@@ -183,29 +124,36 @@ impl IngestClient {
 
     fn cached_json<F: FnOnce() -> Result<Value, IngestError>>(
         &self,
-        path: &Path,
+        municipality: &Municipality,
         stage: Stage,
         label: &str,
+        newer_than: Option<&Path>,
         fetch: F,
     ) -> Result<Value, IngestError> {
-        if self.cache.is_fresh(path, self.cache_max_age)? {
-            match self.cache.load_json(path) {
+        let path = self.cache.path(municipality, stage);
+        let newer = match newer_than {
+            Some(than) => self.cache.is_newer(&path, than)?,
+            None => true,
+        };
+
+        if newer && self.cache.is_fresh(&path, self.cache_max_age)? {
+            match self.cache.load_json(&path) {
                 Ok(Some(value)) => {
-                    self.reporter.report(stage, format!("Using cached {label}"), Some(100));
+                    self.reporter.report(stage, format!("Using cached {label}"));
                     return Ok(value);
                 }
                 Ok(None) => {}
                 Err(error) => {
                     self.reporter
-                        .report(stage, format!("Ignoring invalid {label} cache: {error}"), None);
+                        .report(stage, format!("Ignoring invalid {label} cache: {error}"));
                 }
             }
         }
 
         let value = fetch()?;
-        self.cache.save_json(path, &value)?;
+        self.cache.save_json(&path, &value)?;
         self.reporter
-            .report(stage, format!("Saved {label} to {}", path.display()), Some(100));
+            .report(stage, format!("Saved {label} to {}", path.display()));
 
         Ok(value)
     }

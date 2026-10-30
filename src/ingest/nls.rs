@@ -20,7 +20,7 @@ pub fn footprints(
     bbox: &BBox,
     reporter: &Reporter,
 ) -> Result<Value, IngestError> {
-    reporter.report(Stage::NlsFootprints, "Downloading NLS building footprints", Some(0));
+    reporter.report(Stage::NlsFootprints, "Downloading NLS building footprints");
 
     let (min_x, min_y, max_x, max_y) = geo::bbox_in_3067(bbox)?;
     let mut features: Vec<Value> = Vec::new();
@@ -31,57 +31,18 @@ pub fn footprints(
             "{WFS_URL}?service=WFS&version=2.0.0&request=GetFeature&typeNames=bu-core2d:Building&bbox={min_x},{min_y},{max_x},{max_y}&srsName=urn:ogc:def:crs:EPSG::4326&startIndex={start}&count={PAGE_SIZE}"
         );
         let body = http::get_text(client, &url)?;
-        let document = Document::parse(&body)
-            .map_err(|error| IngestError::InvalidData(format!("invalid XML from the NLS WFS: {error}")))?;
-
-        let mut page: Vec<Value> = Vec::new();
-
-        for member in document.descendants().filter(|node| node.has_tag_name("member")) {
-            let Some(building) = member.children().find(|node| node.is_element()) else {
-                continue;
-            };
-
-            let id = building
-                .attributes()
-                .find(|attribute| attribute.name() == "id")
-                .map(|attribute| attribute.value().to_string())
-                .unwrap_or_default();
-            let mtk_id = id.rsplit('_').next().unwrap_or(&id).to_string();
-            let rings = rings_of(building);
-
-            if rings.is_empty() {
-                continue;
-            }
-
-            let geometry = if rings.len() == 1 {
-                json!({"type": "Polygon", "coordinates": vec![rings[0].clone()]})
-            } else {
-                json!({
-                    "type": "MultiPolygon",
-                    "coordinates": rings.iter().map(|ring| vec![ring.clone()]).collect::<Vec<_>>()
-                })
-            };
-
-            page.push(json!({
-                "type": "Feature",
-                "id": format!("nls/{mtk_id}"),
-                "properties": {"mtk_id": mtk_id, "source": "NLS Maastotietokanta"},
-                "geometry": geometry,
-            }));
-        }
-
+        let (mut page, returned) = parse_page(&body)?;
         let page_len = page.len();
         features.append(&mut page);
 
         reporter.report(
             Stage::NlsFootprints,
             format!("NLS page of {page_len} footprints, {} in total", features.len()),
-            None,
         );
 
-        start += page_len;
+        start += returned;
 
-        if page_len < PAGE_SIZE {
+        if returned < PAGE_SIZE {
             break;
         }
     }
@@ -89,7 +50,6 @@ pub fn footprints(
     reporter.report(
         Stage::NlsFootprints,
         format!("Downloaded {} NLS footprints", features.len()),
-        Some(100),
     );
 
     Ok(json!({
@@ -98,6 +58,61 @@ pub fn footprints(
         "source": "NLS Maastotietokanta via INSPIRE WFS",
         "features": features,
     }))
+}
+
+fn parse_page(body: &str) -> Result<(Vec<Value>, usize), IngestError> {
+    let document = Document::parse(body)
+        .map_err(|error| IngestError::InvalidData(format!("invalid XML from the NLS WFS: {error}")))?;
+
+    if document
+        .descendants()
+        .any(|node| node.has_tag_name("ExceptionReport") || node.has_tag_name("ServiceExceptionReport"))
+    {
+        return Err(IngestError::InvalidData(
+            "NLS WFS returned an exception report".to_string(),
+        ));
+    }
+
+    let mut page: Vec<Value> = Vec::new();
+    let mut returned = 0usize;
+
+    for member in document.descendants().filter(|node| node.has_tag_name("member")) {
+        returned += 1;
+
+        let Some(building) = member.children().find(|node| node.is_element()) else {
+            continue;
+        };
+
+        let id = building
+            .attributes()
+            .find(|attribute| attribute.name() == "id")
+            .map(|attribute| attribute.value().to_string())
+            .unwrap_or_default();
+        let mtk_id = id.rsplit('_').next().unwrap_or(&id).to_string();
+        let rings = rings_of(building);
+
+        if rings.is_empty() {
+            continue;
+        }
+
+        let geometry = if rings.len() == 1 {
+            json!({"type": "Polygon", "coordinates": vec![rings[0].clone()]})
+        } else {
+            json!({
+                "type": "MultiPolygon",
+                "coordinates": rings.iter().map(|ring| vec![ring.clone()]).collect::<Vec<_>>()
+            })
+        };
+
+        page.push(json!({
+            "type": "Feature",
+            "id": format!("nls/{mtk_id}"),
+            "properties": {"mtk_id": mtk_id, "source": "NLS Maastotietokanta"},
+            "geometry": geometry,
+        }));
+    }
+
+    Ok((page, returned))
 }
 
 fn rings_of(building: roxmltree::Node) -> Vec<Vec<Value>> {
@@ -121,4 +136,34 @@ fn rings_of(building: roxmltree::Node) -> Vec<Vec<Value>> {
     }
 
     rings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_exception_reports() {
+        let xml = r#"<ows:ExceptionReport xmlns:ows="http://www.opengis.net/ows/1.1"/>"#;
+        assert!(parse_page(xml).is_err());
+    }
+
+    #[test]
+    fn counts_returned_members_even_when_skipped() {
+        let xml = r#"
+            <FeatureCollection xmlns="http://www.opengis.net/wfs/2.0">
+                <member>
+                    <bu:Building xmlns:bu="urn:test" gml:id="a_123" xmlns:gml="http://www.opengis.net/gml/3.2">
+                        <gml:posList>1 2 3 4 5 6 7 8 1 2</gml:posList>
+                    </bu:Building>
+                </member>
+                <member><bu:Empty xmlns:bu="urn:test"/></member>
+            </FeatureCollection>
+        "#;
+
+        let (page, returned) = parse_page(xml).expect("valid page");
+
+        assert_eq!(returned, 2);
+        assert_eq!(page.len(), 1);
+    }
 }

@@ -4,7 +4,9 @@
 //! via the CLI during tool startup.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde_json::Value;
 
 pub const DEFAULT_CACHE_DIR: &str = "data";
 pub const DEFAULT_CACHE_MAX_AGE_DAYS: u64 = 7;
@@ -158,4 +160,81 @@ pub fn parse_args(raw_args: &[String]) -> Result<Parameters, InvalidArgError> {
     }
 
     Ok(params)
+}
+
+/// Writes JSON atomically through a temporary file.
+pub fn save_json<T: serde::Serialize>(path: &Path, value: &T, pretty: bool) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let text = if pretty {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    }
+    .map_err(std::io::Error::other)?;
+
+    let temporary = path.with_extension("json.tmp");
+    std::fs::write(&temporary, text)?;
+    std::fs::rename(&temporary, path)?;
+
+    Ok(())
+}
+
+/// Returns the feature array of a GeoJSON feature collection.
+pub fn features(value: &Value) -> &[Value] {
+    value
+        .get("features")
+        .and_then(Value::as_array)
+        .map_or(&[], Vec::as_slice)
+}
+
+/// Returns a unique id for a review round.
+pub fn now_id() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs().to_string())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+pub mod test_support {
+    use std::ops::Deref;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    /// Temporary directory that removes itself on drop.
+    pub struct TempDir(PathBuf);
+
+    impl TempDir {
+        pub fn new(prefix: &str, label: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "lacuna-{prefix}-test-{label}-{}-{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("failed to create test directory");
+
+            Self(path)
+        }
+    }
+
+    impl Deref for TempDir {
+        type Target = Path;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 }
