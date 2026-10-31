@@ -57,7 +57,7 @@ pub fn parcels(
     Ok(json!({
         "type": "FeatureCollection",
         "name": format!("{}_parcels", municipality.slug()),
-        "source": "MML land parcels via INSPIRE WFS",
+        "source": "NLS land parcels via INSPIRE WFS",
         "features": features,
     }))
 }

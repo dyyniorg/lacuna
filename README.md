@@ -4,7 +4,7 @@ Local tool for importing Finnish building and address data semi-automatically in
 
 Official data sources (CC BY 4.0):
 
-- [National Land Survey of Finland](https://www.maanmittauslaitos.fi/en): Land parcels and Maastotietokanta building polygons via INSPIRE WFS
+- [National Land Survey of Finland (NLS)](https://www.maanmittauslaitos.fi/en): land parcels and Topographic database building polygons via INSPIRE WFS
 - [Finnish Environment Institute (Syke)](https://www.syke.fi/en): Ryhti buildings and building addresses
 
 > [!NOTE]

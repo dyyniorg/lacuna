@@ -709,7 +709,7 @@ pub fn compare(
         suggested.insert("building".to_string(), json!("yes"));
         suggested.insert(
             "source".to_string(),
-            json!("MML Maastotietokanta; Ryhti (SYKE); CC BY 4.0"),
+            json!("MML Maastotietokanta; Ryhti (Syke); CC BY 4.0"),
         );
 
         if let Some(permanent_id) = permanent_ids[index].as_ref() {

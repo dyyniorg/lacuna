@@ -1,4 +1,4 @@
-//! NLS (MML) Maastotietokanta (building footprints) WFS client.
+//! NLS Topographic database (building footprints) WFS client.
 
 use reqwest::blocking::Client;
 use roxmltree::Document;
@@ -55,7 +55,7 @@ pub fn footprints(
     Ok(json!({
         "type": "FeatureCollection",
         "name": format!("{}_nls", municipality.slug()),
-        "source": "NLS Maastotietokanta via INSPIRE WFS",
+        "source": "NLS Topographic database via INSPIRE WFS",
         "features": features,
     }))
 }
@@ -107,7 +107,7 @@ fn parse_page(body: &str) -> Result<(Vec<Value>, usize), IngestError> {
         page.push(json!({
             "type": "Feature",
             "id": format!("nls/{mtk_id}"),
-            "properties": {"mtk_id": mtk_id, "source": "NLS Maastotietokanta"},
+            "properties": {"mtk_id": mtk_id, "source": "NLS Topographic database"},
             "geometry": geometry,
         }));
     }

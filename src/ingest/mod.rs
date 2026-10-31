@@ -1,8 +1,8 @@
 //! Input data ingestion for the local review tool.
 //!
-//! The client fetches Ryhti buildings and addresses, NLS (MML) footprints, land
-//! parcels, and OSM buildings from a fresh Finland PBF extract. Responses are cached
-//! under the configured cache directory.
+//! The client fetches Ryhti buildings and addresses, NLS footprints, land
+//! parcels, and OSM buildings from a fresh Finland PBF extract. Responses are
+//! cached under the configured cache directory.
 
 mod cache;
 mod error;
