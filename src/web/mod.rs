@@ -126,6 +126,7 @@ struct CellInfo {
     number: String,
     buildings: bool,
     addresses: bool,
+    skipped: bool,
     buildings_path: String,
     addresses_path: String,
     download_url: String,
@@ -623,6 +624,14 @@ fn load_or_create_progress(params: &Parameters, municipality: &Municipality) -> 
     let before = progress.cells.clone();
     progress.sync_cells(&cells);
 
+    for cell in &cells {
+        if let Some(entry) = progress.cells.get_mut(cell) {
+            entry.skipped = state
+                .as_ref()
+                .is_some_and(|state| !state.missing_by_cell.contains_key(cell));
+        }
+    }
+
     if stale || progress.cells != before || !path.exists() {
         progress::save(&path, &progress)?;
     }
@@ -654,6 +663,7 @@ fn cell_info(params: &Parameters, municipality: &Municipality, cell: &str, progr
         number: cell.to_string(),
         buildings: state.buildings,
         addresses: state.addresses,
+        skipped: state.skipped,
         buildings_path: absolute_path(&dir.join("buildings.osm")),
         addresses_path: absolute_path(&dir.join("addresses.osm")),
         download_url,

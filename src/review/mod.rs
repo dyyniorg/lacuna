@@ -224,7 +224,17 @@ pub fn run(
         .cloned()
         .collect();
 
-    osm_io::save_osm(&out_dir.join("buildings.osm"), &missing_features)?;
+    let buildings_path = out_dir.join("buildings.osm");
+
+    if missing_features.is_empty() {
+        match fs::remove_file(&buildings_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    } else {
+        osm_io::save_osm(&buildings_path, &missing_features)?;
+    }
 
     let cells = packages::write_packages(
         &out_dir.join("review"),
@@ -602,6 +612,49 @@ mod tests {
     }
 
     #[test]
+    fn packages_skip_empty_buildings_file() {
+        let dir = TempDir::new("review", "skip-buildings");
+        let review_dir = dir.join("review");
+        let bbox = ingest::BBox {
+            min_lon: 24.98,
+            min_lat: 60.98,
+            max_lon: 25.10,
+            max_lat: 61.10,
+        };
+        let official = collection(vec![official("A", "B1", "P1", 25.001, 61.001)]);
+        let address_missing = vec![feature(
+            square(25.04, 61.001, 25.06, 61.002),
+            json!({
+                "official_address": {
+                    "housenumber": "1",
+                    "street": "Testikatu",
+                    "postcode": "17800",
+                    "city": "Kuhmoinen",
+                },
+                "owner_point": [25.001, 61.001],
+            }),
+        )]
+        .into_iter()
+        .map(|mut feature| {
+            feature["id"] = json!("way/100");
+            feature
+        })
+        .collect::<Vec<_>>();
+
+        let packages =
+            packages::write_packages(&review_dir, &official, &collection(Vec::new()), &address_missing, &bbox)
+                .expect("failed to write packages");
+
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].buildings, 0);
+        assert_eq!(packages[0].addresses, 1);
+
+        let cell_dir = review_dir.join(&packages[0].number);
+        assert!(!cell_dir.join("buildings.osm").exists());
+        assert!(cell_dir.join("addresses.osm").is_file());
+    }
+
+    #[test]
     fn run_writes_osm_outputs_and_minimal_state() {
         let dir = TempDir::new("review", "run");
         let data_dir = dir.join(MUNICIPALITY.slug());
@@ -722,6 +775,65 @@ mod tests {
         assert!(addresses_osm.contains("way id=\"200\""));
         assert!(addresses_osm.contains("addr:housenumber\" v=\"2\""));
         assert_eq!(fs::read_to_string(&buildings_path).unwrap(), kept_osm);
+    }
+
+    #[test]
+    fn adjust_allows_missing_buildings_file_for_skipped_cell() {
+        let dir = TempDir::new("review", "adjust-skipped");
+        let data_dir = dir.join(MUNICIPALITY.slug());
+        fs::create_dir_all(&data_dir).unwrap();
+
+        let official = collection(vec![official("A", "B1", "P1", 25.001, 61.001)]);
+        let addresses = collection(vec![address("B1", "1", "Testikatu", 25.001, 61.001)]);
+        let nls = collection(vec![nls("A1", 25.0005, 61.0005, 25.0015, 61.0015)]);
+        let osm = collection(vec![osm_way("way/100", 25.0005, 61.0005, 25.0015, 61.0015, None, None)]);
+        let parcels = collection(vec![parcel("P1", 24.999, 60.999, 25.012, 61.012)]);
+
+        for (name, value) in [
+            ("ryhti_buildings.json", &official),
+            ("ryhti_addresses.json", &addresses),
+            ("nls_footprints.json", &nls),
+            ("osm_buildings.json", &osm),
+            ("parcels.json", &parcels),
+        ] {
+            fs::write(data_dir.join(name), serde_json::to_string(value).unwrap()).unwrap();
+        }
+
+        let bbox = ingest::bbox_of_points(&official).unwrap();
+        let cell = packages::cells_of(&official, &bbox)[0].number.clone();
+        let state = super::ReviewState {
+            round_id: "test-round".to_string(),
+            missing_by_cell: BTreeMap::new(),
+        };
+        super::state::save(&dir, &MUNICIPALITY, &state).unwrap();
+
+        let cell_dir = data_dir.join("review").join(&cell);
+        fs::create_dir_all(&cell_dir).unwrap();
+
+        let output = super::adjust(&MUNICIPALITY, &dir, &cell).unwrap();
+
+        assert_eq!(output.kept, 0);
+        assert_eq!(output.removed, 0);
+        assert!(cell_dir.join("addresses.osm").is_file());
+    }
+
+    #[test]
+    fn adjust_rejects_missing_buildings_file_when_expected() {
+        let dir = TempDir::new("review", "adjust-missing");
+        let data_dir = dir.join(MUNICIPALITY.slug());
+        let cell = "00_00";
+        let cell_dir = data_dir.join("review").join(cell);
+        fs::create_dir_all(&cell_dir).unwrap();
+
+        let state = super::ReviewState {
+            round_id: "test-round".to_string(),
+            missing_by_cell: BTreeMap::from([(cell.to_string(), vec!["A".to_string()])]),
+        };
+        super::state::save(&dir, &MUNICIPALITY, &state).unwrap();
+
+        let result = super::adjust(&MUNICIPALITY, &dir, cell);
+
+        assert!(matches!(result, Err(super::ReviewError::MissingInput(_))));
     }
 
     #[test]

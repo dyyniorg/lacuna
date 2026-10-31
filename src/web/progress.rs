@@ -14,6 +14,9 @@ use crate::utils;
 pub struct CellProgress {
     pub buildings: bool,
     pub addresses: bool,
+    /// No building proposals exist for this cell.
+    #[serde(default)]
+    pub skipped: bool,
 }
 
 /// Progress for one full review round.
@@ -66,7 +69,7 @@ impl ReviewProgress {
             .get_mut(cell)
             .ok_or_else(|| format!("Unknown review cell: {cell}"))?;
 
-        if !entry.buildings {
+        if !entry.buildings && !entry.skipped {
             return Err("Buildings must be reviewed before marking addresses done".to_string());
         }
 
@@ -134,6 +137,18 @@ mod tests {
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"buildings\""));
         assert!(text.contains("\"addresses\""));
+        assert!(text.contains("\"skipped\""));
         assert!(text.contains("review notes"));
+    }
+
+    #[test]
+    fn skipped_cells_can_mark_addresses_done() {
+        let mut progress = ReviewProgress::new(&["01_00".to_string()]);
+        progress.cells.get_mut("01_00").unwrap().skipped = true;
+
+        progress.set_addresses("01_00").unwrap();
+
+        assert!(progress.cells["01_00"].addresses);
+        assert!(!progress.cells["01_00"].buildings);
     }
 }

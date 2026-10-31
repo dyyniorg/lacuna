@@ -36,7 +36,16 @@ pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Resu
 
     let buildings_path = cell_dir.join("buildings.osm");
 
-    let entries = parse_buildings_osm(&buildings_path)?;
+    let state = state::load(cache_dir, municipality)?
+        .ok_or_else(|| ReviewError::MissingInput(state::path(cache_dir, municipality)))?;
+
+    let entries = if buildings_path.is_file() {
+        parse_buildings_osm(&buildings_path)?
+    } else if state.missing_by_cell.contains_key(cell) {
+        return Err(ReviewError::MissingInput(buildings_path));
+    } else {
+        Vec::new()
+    };
 
     let kept_refs: HashSet<String> = entries
         .iter()
@@ -56,9 +65,6 @@ pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Resu
         .iter()
         .find(|candidate| candidate.number == cell)
         .ok_or_else(|| ReviewError::CellNotFound(cell.to_string()))?;
-
-    let state = state::load(cache_dir, municipality)?
-        .ok_or_else(|| ReviewError::MissingInput(state::path(cache_dir, municipality)))?;
 
     let deleted: HashSet<String> = state
         .missing_by_cell

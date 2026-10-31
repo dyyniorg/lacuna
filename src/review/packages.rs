@@ -128,7 +128,9 @@ pub fn write_packages(
         );
         std::fs::write(dir.join("osm_bbox.txt"), bbox_text)?;
 
-        osm_io::save_osm(&dir.join("buildings.osm"), &missing)?;
+        if !missing.is_empty() {
+            osm_io::save_osm(&dir.join("buildings.osm"), &missing)?;
+        }
 
         let address_ways: Vec<ExistingWay> = addresses_here.iter().filter_map(existing_way_from_feature).collect();
 

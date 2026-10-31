@@ -55,7 +55,7 @@
 
     <section id="first-review" hidden>
         <h2>First review: buildings</h2>
-        <p>Copy a cell's OSM download URL and open <code>buildings.osm</code>. Review the geometries and save it, then select that cell and run the next step.</p>
+        <p>Copy a cell's OSM download URL and open <code>buildings.osm</code>. Review the geometries and save it, then select that cell and run the next step. Cells marked <code>Skipped</code> have no building proposals, review their addresses directly.</p>
         <ol>
             <li>Paste the copied OSM download URL into JOSM.</li>
             <li>Open the cell's <code>buildings.osm</code> path in JOSM.</li>
@@ -79,7 +79,7 @@
 
     <section id="final" hidden>
         <h2>Final review</h2>
-        <p>Open the adjusted <code>addresses.osm</code> in JOSM, run <code>apply_addresses.js</code> on the downloaded OSM layer, merge <code>buildings.osm</code>, remove all <code>lacuna:*</code> tags, and upload only the downloaded OSM layer.</p>
+        <p>Open the adjusted <code>addresses.osm</code> in JOSM, run <code>apply_addresses.js</code> on the downloaded OSM layer, merge <code>buildings.osm</code> when the cell has that file, remove all <code>lacuna:*</code> tags, and upload only the downloaded OSM layer.</p>
         <p>Changeset source for address-only edits: <code>Ryhti (Syke); CC BY 4.0</code>. When the changeset also adds buildings: <code>MML Maastotietokanta; Ryhti (Syke); CC BY 4.0</code>.</p>
         <div id="final-cells"></div>
         <h3>Notes</h3>
@@ -309,9 +309,10 @@
         }
 
         $("round").hidden = true;
-        const hasAdjust = session.cells.some((cell) => cell.buildings);
-        $("first-review").hidden = !hasCells;
-        $("final").hidden = !hasAdjust;
+        const hasBuildingWork = session.cells.some((cell) => !cell.skipped);
+        const hasAddressWork = session.cells.some((cell) => cell.buildings || cell.skipped);
+        $("first-review").hidden = !hasBuildingWork;
+        $("final").hidden = !hasAddressWork;
         $("run").textContent = hasCells ? "Start new round" : "Run review";
     }
 
@@ -330,7 +331,7 @@
                     ${cells.map((cell) => `
                         <tr>
                             <td><code>${escapeHtml(cell.number)}</code></td>
-                            <td>${cell.buildings ? "Reviewed" : "Pending"}</td>
+                            <td>${cell.skipped ? "Skipped" : cell.buildings ? "Reviewed" : "Pending"}</td>
                             <td>${cell.addresses ? "Done" : "Pending"}</td>
                             <td>${action(cell)}</td>
                         </tr>
@@ -347,7 +348,7 @@
 
         $("cells").innerHTML = cellTable(session.cells, "Copy", (cell) => `
             ${copyButton(cell.download_url, "OSM URL")}
-            ${copyButton(cell.buildings_path, "buildings.osm")}
+            ${cell.skipped ? "" : copyButton(cell.buildings_path, "buildings.osm")}
             ${copyButton(cell.addresses_path, "addresses.osm")}
         `);
 
@@ -356,21 +357,28 @@
                 return "Done";
             }
 
-            if (cell.buildings) {
+            if (cell.buildings || cell.skipped) {
                 return `<button class="mark-done" data-cell="${escapeHtml(cell.number)}">Mark as done</button>`;
             }
 
             return "<span>Run adjust first</span>";
         });
 
+        const adjustable = session.cells.filter((cell) => !cell.skipped);
         const current = $("adjust-cell").value;
-        $("adjust-cell").innerHTML = session.cells
+
+        $("adjust-cell").innerHTML = adjustable
             .map((cell) => `<option value="${escapeHtml(cell.number)}">${escapeHtml(cell.number)}${cell.buildings ? " (adjusted)" : ""}</option>`)
             .join("");
+        $("adjust").disabled = adjustable.length === 0;
 
-        if (current && session.cells.some((cell) => cell.number === current)) {
+        if (current && adjustable.some((cell) => cell.number === current)) {
             $("adjust-cell").value = current;
         }
+    }
+
+    function hasAdjustableCells() {
+        return Boolean(session && session.cells.some((cell) => !cell.skipped));
     }
 
     async function startRun(overwrite) {
@@ -490,7 +498,7 @@
         } else {
             $("status").innerHTML = "";
             $("run").disabled = !selected;
-            $("adjust").disabled = false;
+            $("adjust").disabled = !hasAdjustableCells();
         }
 
         if (status.error && status.error_municipality === selected) {
