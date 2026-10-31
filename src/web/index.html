@@ -53,6 +53,10 @@
     #adjust-controls {
         padding-bottom: 5em;
     }
+
+    #cache-toggle {
+        cursor: pointer;
+    }
 </style>
 </head>
 <body>
@@ -110,6 +114,7 @@
     let pollTimer = null;
     let revealRound = false;
     let sessionRequest = 0;
+    let cacheExpanded = false;
 
     const $ = (id) => document.getElementById(id);
 
@@ -257,6 +262,12 @@
 
     function renderCache() {
         const cache = session.cache;
+        const cacheStatus =
+            cache.entries.length === 0 || cache.entries.every((entry) => !entry.exists)
+                ? "missing"
+                : cache.entries.every((entry) => entry.exists && entry.fresh)
+                    ? "ok"
+                    : "partial";
 
         const entries = cache.entries.map((entry) => {
             const state = entry.exists
@@ -265,7 +276,10 @@
             return `<li>${escapeHtml(entry.kind)}: <code>${escapeHtml(entry.path)}</code> (${escapeHtml(state)})</li>`;
         }).join("");
 
-        $("cache").innerHTML = `<p>Cache max age: ${cache.max_age_days} days</p><ul>${entries}</ul>`;
+        $("cache").innerHTML = `
+            <p id="cache-toggle">Cache status: ${cacheStatus} (max. age: ${cache.max_age_days} days) &emsp; [click to ${cacheExpanded ? "hide" : "show"}]</p>
+            <ul id="cache-list"${cacheExpanded ? "" : " hidden"}>${entries}</ul>
+        `;
     }
 
     async function loadSession() {
@@ -514,6 +528,14 @@
     }
 
     async function onDocumentClick(event) {
+        const cacheToggle = event.target.closest("#cache-toggle");
+
+        if (cacheToggle) {
+            cacheExpanded = !cacheExpanded;
+            renderCache();
+            return;
+        }
+
         const copy = event.target.closest("[data-copy]");
 
         if (copy) {
