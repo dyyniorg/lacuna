@@ -46,10 +46,10 @@ Use only one of `--review`, `--fetch`, or `--adjust` at a time.
 
 | Option | Default | Description |
 | - | - | - |
-| `--cache <dir>` | `data` | Cache and review root. |
-| `--cache-max-age <days>` | `7` | Maximum age of a cached resource. Use `0` to force a refresh. |
-| `--listen-all` | off | Listen on `0.0.0.0:3000` instead of `localhost:3000`. |
-| `--municipality <code>` | none | Municipality code for CLI modes. |
-| `--overwrite` | off | Replace existing review output without confirmation. |
+| `--cache <dir>` | `data` | Cache and review root |
+| `--cache-max-age <days>` | `7` | Maximum age of a cached resource. Use `0` to force a refresh |
+| `--listen-all` | off | Listen on `0.0.0.0:3000` instead of `localhost:3000` |
+| `--municipality <code>` | none | Municipality code for CLI modes |
+| `--overwrite` | off | Replace existing review output without confirmation |
 
 Without `--overwrite`, the CLI review mode stops when review output exists. The web UI asks for confirmation instead.
