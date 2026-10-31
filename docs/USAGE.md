@@ -30,7 +30,7 @@ data/
     osm_buildings.json      # CACHE: OSM building ways extracted from the PBF
     buildings.osm           # New building proposals for the *whole* municipality
     addresses.osm           # Address proposals for existing OSM ways for *whole* municipality
-    review_state.json       # Round ID and missing building refs per cell, used by adjust
+    review_state.json       # Round ID and missing building refs per cell, used by the adjust step
     progress.json           # UI: per-cell review checkmarks and notes
     review/
       <cell>/
@@ -39,7 +39,7 @@ data/
         osm_bbox.txt        # OSM download bbox and URL for JOSM for *this* cell
 ```
 
-The top-level `buildings.osm` and `addresses.osm` contain all proposals for the whole municipality. The files under `review/<cell>` subdirectories essentially contain the same data split into smaller areas for easier handling. The `.osm` review package files use OSM XML (supported directly in JOSM).
+When proposals exist, the top-level `buildings.osm` and `addresses.osm` contain all proposals for the whole municipality. The files under `review/<cell>` subdirectories essentially contain the same data split into smaller areas for easier handling. The `.osm` review package files use OSM XML (supported directly in JOSM).
 
 ## JOSM workflow
 
@@ -51,6 +51,8 @@ The top-level `buildings.osm` and `addresses.osm` contain all proposals for the 
 6. Open only the cell `addresses.osm` layer. Activate the downloaded OSM data layer and run `josm/apply_addresses.js`. The script migrates the address tags from the custom layer onto the OSM data layer.
 7. Review the changes and upload only the downloaded OSM data layer. Remember to remove all `lacuna:*` tags before upload.
 8. Mark the cell done in the web UI. This marks the address step done for the cell.
+
+Cells with no new building proposals have no `buildings.osm` file. The web UI shows them as `Skipped`, hides the buildings file button, and lets you proceed directly to the address review. The adjust step is not needed for those cells.
 
 ### Adjust behavior
 
