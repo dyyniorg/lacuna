@@ -12,7 +12,6 @@ The web UI shows:
 - The current review round
 - Per-cell OSM download URLs and file paths
 - Building and address progress for each cell
-- Notes for the round
 - Overwrite confirmation
 
 ## Output layout
@@ -31,7 +30,7 @@ data/
     buildings.osm           # New building proposals for the *whole* municipality
     addresses.osm           # Address proposals for existing OSM ways for *whole* municipality
     review_state.json       # Round ID and missing building refs per cell, used by the adjust step
-    progress.json           # UI: per-cell review checkmarks and notes
+    progress.json           # UI: per-cell review checkmarks
     review/
       <cell>/
         buildings.osm       # New building proposals for *this* cell
