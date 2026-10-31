@@ -25,8 +25,33 @@
     }
 
     th, td {
-        padding-left: 0.5em;
-        padding-right: 0.5em;
+        padding-left: 0.75em;
+        padding-right: 0.75em;
+        text-align: left;
+    }
+
+    .cell-table-scroll {
+        /* roughly ten visible rows */
+        width: fit-content;
+        max-width: 100%;
+        max-height: 20rem;
+        overflow-y: auto;
+    }
+
+    .cell-table-scroll table {
+        border-collapse: collapse;
+    }
+
+    .cell-table-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: Canvas;
+        box-shadow: 0 1px 0 currentColor;
+    }
+
+    #adjust-controls {
+        padding-bottom: 5em;
     }
 </style>
 </head>
@@ -54,19 +79,20 @@
     </section>
 
     <section id="first-review" hidden>
-        <h2>First review: buildings</h2>
-        <p>Copy a cell's OSM download URL and open <code>buildings.osm</code>. Review the geometries and save it, then select that cell and run the next step. Cells marked <code>Skipped</code> have no building proposals, review their addresses directly.</p>
+        <h2>Review</h2>
+        <p>Review each cell's buildings, adjust the addresses, and upload the changes. Cells marked <code>Skipped</code> have no building proposals and do not need Adjust; review their addresses directly.</p>
         <ol>
-            <li>Paste the copied OSM download URL into JOSM.</li>
+            <li>Copy the cell's OSM URL from the table and paste it into JOSM.</li>
             <li>Open the cell's <code>buildings.osm</code> path in JOSM.</li>
             <li>Review the new buildings. Remove <code>lacuna:review</code> when checked. Keep <code>lacuna:ref</code>.</li>
             <li>Save <code>buildings.osm</code> back to the same path.</li>
-            <li>Select the reviewed cell and click <strong>Run adjust</strong>.</li>
         </ol>
+        <p>Once the cell is ready for address review, open only its <code>addresses.osm</code> layer in JOSM, activate the downloaded OSM data layer, and run <code>apply_addresses.js</code>. The script moves the address tags onto the OSM data layer. Merge <code>buildings.osm</code> when the cell has that file, remove all <code>lacuna:*</code> tags, and upload only the downloaded OSM data layer.</p>
+        <p>Changeset source for address-only edits: <code>Ryhti (Syke); CC BY 4.0</code>. When the changeset also adds buildings: <code>MML Maastotietokanta; Ryhti (Syke); CC BY 4.0</code>.</p>
         <div id="cells"></div>
         <h3>Adjust addresses</h3>
         <p>Select a cell you have reviewed and saved in JOSM.</p>
-        <div>
+        <div id="adjust-controls">
             <select id="adjust-cell"></select>
             <button id="adjust">Run adjust</button>
         </div>
@@ -75,19 +101,6 @@
     <section id="adjust-report" hidden>
         <h2>Adjust report</h2>
         <div id="adjust-details"></div>
-    </section>
-
-    <section id="final" hidden>
-        <h2>Final review</h2>
-        <p>Open the adjusted <code>addresses.osm</code> in JOSM, run <code>apply_addresses.js</code> on the downloaded OSM layer, merge <code>buildings.osm</code> when the cell has that file, remove all <code>lacuna:*</code> tags, and upload only the downloaded OSM layer.</p>
-        <p>Changeset source for address-only edits: <code>Ryhti (Syke); CC BY 4.0</code>. When the changeset also adds buildings: <code>MML Maastotietokanta; Ryhti (Syke); CC BY 4.0</code>.</p>
-        <div id="final-cells"></div>
-        <h3>Notes</h3>
-        <textarea id="notes" rows="6" placeholder="Notes from this review round"></textarea>
-        <div>
-            <button id="save-notes">Save notes</button>
-            <span id="notes-status"></span>
-        </div>
     </section>
 </main>
 <script>
@@ -206,7 +219,6 @@
             applySession();
         });
         $("adjust").addEventListener("click", startAdjust);
-        $("save-notes").addEventListener("click", saveNotes);
         document.addEventListener("click", onDocumentClick);
 
         await pollStatus();
@@ -228,9 +240,7 @@
         $("round").hidden = true;
         $("first-review").hidden = true;
         $("adjust-report").hidden = true;
-        $("final").hidden = true;
         $("cells").innerHTML = "";
-        $("final-cells").innerHTML = "";
         $("adjust-cell").innerHTML = "";
         $("cache").innerHTML = "";
 
@@ -250,7 +260,7 @@
 
         const entries = cache.entries.map((entry) => {
             const state = entry.exists
-                ? `${formatSize(entry.size_bytes)}, age ${formatAge(entry.age_seconds)}, ${entry.fresh ? "fresh" : "stale"}`
+                ? `${formatSize(entry.size_bytes)}, updated ${formatAge(entry.age_seconds)} ago`
                 : "missing";
             return `<li>${escapeHtml(entry.kind)}: <code>${escapeHtml(entry.path)}</code> (${escapeHtml(state)})</li>`;
         }).join("");
@@ -286,7 +296,6 @@
             return;
         }
 
-        $("notes").value = session.notes || "";
         renderCache();
         renderCells();
 
@@ -302,42 +311,46 @@
             $("round").hidden = false;
             $("first-review").hidden = true;
             $("adjust-report").hidden = true;
-            $("final").hidden = true;
             $("run").textContent = "Start new round";
 
             return;
         }
 
         $("round").hidden = true;
-        const hasBuildingWork = session.cells.some((cell) => !cell.skipped);
-        const hasAddressWork = session.cells.some((cell) => cell.buildings || cell.skipped);
-        $("first-review").hidden = !hasBuildingWork;
-        $("final").hidden = !hasAddressWork;
+        $("first-review").hidden = !hasCells;
         $("run").textContent = hasCells ? "Start new round" : "Run review";
     }
 
-    function cellTable(cells, actionLabel, action) {
+    function cellTable(cells, action) {
         return `
-            <table>
-                <thead>
-                    <tr>
-                        <th>Cell</th>
-                        <th>Buildings</th>
-                        <th>Addresses</th>
-                        <th>${actionLabel}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${cells.map((cell) => `
+            <div class="cell-table-scroll">
+                <table>
+                    <thead>
                         <tr>
-                            <td><code>${escapeHtml(cell.number)}</code></td>
-                            <td>${cell.skipped ? "Skipped" : cell.buildings ? "Reviewed" : "Pending"}</td>
-                            <td>${cell.addresses ? "Done" : "Pending"}</td>
-                            <td>${action(cell)}</td>
+                            <th>Cell</th>
+                            <th>Buildings</th>
+                            <th>Addresses</th>
+                            <th>Copy</th>
+                            <th>Action</th>
                         </tr>
-                    `).join("")}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        ${cells.map((cell) => `
+                            <tr>
+                                <td><code>${escapeHtml(cell.number)}</code></td>
+                                <td>${cell.skipped ? "Skipped" : cell.buildings ? "Reviewed" : "Pending"}</td>
+                                <td>${cell.addresses ? "Done" : "Pending"}</td>
+                                <td>
+                                    ${copyButton(cell.download_url, "OSM URL")}
+                                    ${cell.skipped ? "" : copyButton(cell.buildings_path, "buildings.osm")}
+                                    ${copyButton(cell.addresses_path, "addresses.osm")}
+                                </td>
+                                <td>${action(cell)}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </div>
         `;
     }
 
@@ -346,13 +359,7 @@
             return;
         }
 
-        $("cells").innerHTML = cellTable(session.cells, "Copy", (cell) => `
-            ${copyButton(cell.download_url, "OSM URL")}
-            ${cell.skipped ? "" : copyButton(cell.buildings_path, "buildings.osm")}
-            ${copyButton(cell.addresses_path, "addresses.osm")}
-        `);
-
-        $("final-cells").innerHTML = cellTable(session.cells, "Action", (cell) => {
+        $("cells").innerHTML = cellTable(session.cells, (cell) => {
             if (cell.addresses) {
                 return "Done";
             }
@@ -440,19 +447,6 @@
         }
     }
 
-    async function saveNotes() {
-        if (!selected) {
-            return;
-        }
-
-        try {
-            await post("/api/notes", { municipality: selected, notes: $("notes").value });
-            $("notes-status").textContent = "Saved.";
-        } catch (error) {
-            setError(error.error || "Failed to save notes.");
-        }
-    }
-
     function startPolling() {
         if (!pollTimer) {
             pollTimer = setInterval(pollStatus, 800);
@@ -511,7 +505,7 @@
             const adjust = status.last_adjust;
             $("adjust-details").innerHTML = `
                 <p>Cell <code>${escapeHtml(adjust.cell)}</code>: ${adjust.kept} kept buildings, ${adjust.removed} removed, ${adjust.placed} addresses kept on buildings, ${adjust.address_fixes} address fixes.</p>
-                <p>Open the cell's <code>addresses.osm</code> path in JOSM for the final review.</p>
+                <p>Open the cell's <code>addresses.osm</code> path in JOSM for the address review.</p>
             `;
             $("adjust-report").hidden = false;
         } else {

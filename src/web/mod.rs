@@ -116,7 +116,6 @@ struct CacheEntryView {
 #[derive(Serialize)]
 struct SessionView {
     round_id: String,
-    notes: String,
     cache: CacheView,
     cells: Vec<CellInfo>,
 }
@@ -151,12 +150,6 @@ struct RunRequest {
 struct CellRequest {
     municipality: String,
     cell: String,
-}
-
-#[derive(Deserialize)]
-struct NotesRequest {
-    municipality: String,
-    notes: String,
 }
 
 struct HttpResponse {
@@ -229,7 +222,6 @@ fn handle(mut request: Request, state: Arc<Mutex<AppState>>) -> Result<(), Strin
             "/api/run" => unwrap_response(start_run(&state, &body)),
             "/api/adjust" => unwrap_response(start_adjust(&state, &body)),
             "/api/cells/done" => unwrap_response(mark_done(&state, &body)),
-            "/api/notes" => unwrap_response(save_notes(&state, &body)),
             _ => HttpResponse::text(404, "Not found"),
         }
     } else {
@@ -334,7 +326,6 @@ fn session_response(state: &Arc<Mutex<AppState>>, query: &str) -> HttpResponse {
         200,
         &SessionView {
             round_id: progress.round_id,
-            notes: progress.notes,
             cache,
             cells: cell_infos,
         },
@@ -579,21 +570,6 @@ fn mark_done(state: &Arc<Mutex<AppState>>, body: &str) -> Result<HttpResponse, H
     ))
 }
 
-fn save_notes(state: &Arc<Mutex<AppState>>, body: &str) -> Result<HttpResponse, HttpResponse> {
-    let request: NotesRequest = parse_request(body)?;
-    let municipality = request_municipality(&request.municipality)?;
-    let params = idle_params(state)?;
-    let _guard = progress_lock();
-
-    let mut progress =
-        load_or_create_progress(&params, municipality).map_err(|error| HttpResponse::error(500, error))?;
-
-    progress.notes = request.notes;
-    save_progress(&params, municipality, &progress)?;
-
-    Ok(HttpResponse::json(200, &json!({ "saved": true })))
-}
-
 fn save_progress(
     params: &Parameters,
     municipality: &Municipality,
@@ -779,20 +755,16 @@ mod tests {
         let mut progress = load_or_create_progress(&params, municipality).unwrap();
         assert_eq!(progress.round_id, "1000");
 
-        progress.notes = "old notes".to_string();
-
         progress.set_buildings(cell).unwrap();
         progress::save(&progress::path(params.cache_dir(), municipality), &progress).unwrap();
 
         let progress = load_or_create_progress(&params, municipality).unwrap();
-        assert_eq!(progress.notes, "old notes");
         assert!(progress.cells[cell].buildings);
 
         write_state(&state_path, "2000");
 
         let progress = load_or_create_progress(&params, municipality).unwrap();
         assert_eq!(progress.round_id, "2000");
-        assert!(progress.notes.is_empty());
         assert!(!progress.cells[cell].buildings);
     }
 

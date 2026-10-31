@@ -24,7 +24,6 @@ pub struct CellProgress {
 pub struct ReviewProgress {
     pub round_id: String,
     pub cells: BTreeMap<String, CellProgress>,
-    pub notes: String,
 }
 
 impl ReviewProgress {
@@ -39,7 +38,6 @@ impl ReviewProgress {
                 .iter()
                 .map(|cell| (cell.clone(), CellProgress::default()))
                 .collect(),
-            notes: String::new(),
         }
     }
 
@@ -128,7 +126,6 @@ mod tests {
         assert!(progress.cells.contains_key("03_00"));
         assert!(!progress.cells["02_00"].buildings);
 
-        progress.notes = "review notes".to_string();
         save(&path, &progress).unwrap();
 
         let loaded = load(&path).unwrap().expect("progress file missing");
@@ -138,7 +135,6 @@ mod tests {
         assert!(text.contains("\"buildings\""));
         assert!(text.contains("\"addresses\""));
         assert!(text.contains("\"skipped\""));
-        assert!(text.contains("review notes"));
     }
 
     #[test]
