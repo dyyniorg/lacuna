@@ -8,7 +8,7 @@ Official data sources (CC BY 4.0):
 - [Finnish Environment Institute (Syke)](https://www.syke.fi/en): Ryhti buildings and building addresses
 
 > [!NOTE]
-> Even though the tool is capable of processing large amounts of data into OSM, it should not be used for [fully automated imports](https://wiki.openstreetmap.org/wiki/Import). The user must always review the changesets before uploading them.
+> Even though the tool is capable of processing large amounts of data into OSM, it should not be used for [fully automated imports](https://wiki.openstreetmap.org/wiki/Import). The user must always review the changesets before uploading them. This tool is also still in early development, and bugs may occur.
 
 ## What it does
 
