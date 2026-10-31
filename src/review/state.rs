@@ -12,11 +12,9 @@ use crate::utils;
 use super::ReviewError;
 
 /// Missing building refs and round identity for one review run.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ReviewState {
-    #[serde(default)]
     pub round_id: String,
-    #[serde(default)]
     pub missing_by_cell: BTreeMap<String, Vec<String>>,
 }
 

@@ -12,20 +12,15 @@ use crate::utils;
 /// Review status for one grid cell.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CellProgress {
-    #[serde(default)]
     pub buildings: bool,
-    #[serde(default)]
     pub addresses: bool,
 }
 
 /// Progress for one full review round.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ReviewProgress {
-    #[serde(default)]
     pub round_id: String,
-    #[serde(default)]
     pub cells: BTreeMap<String, CellProgress>,
-    #[serde(default)]
     pub notes: String,
 }
 

@@ -41,7 +41,7 @@ pub struct IngestData {
 /// Fetches and caches all external input data.
 pub struct IngestClient {
     http: reqwest::blocking::Client,
-    download_http: reqwest::blocking::Client,
+    download_http: reqwest::blocking::Client, // for the large OSM PBF download
     cache: Cache,
     cache_max_age: Duration,
     reporter: Reporter,
@@ -135,6 +135,10 @@ impl IngestClient {
             Some(than) => self.cache.is_newer(&path, than)?,
             None => true,
         };
+
+        // NOTE: osm_buildings.json is a derivation of the og. PBF, thus
+        // the PBF extract might be replaced in some cases even if the .json
+        // is younger than our max. limit -> 2 "separate" checks to ensure freshness
 
         if newer && self.cache.is_fresh(&path, self.cache_max_age)? {
             match self.cache.load_json(&path) {

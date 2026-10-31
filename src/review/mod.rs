@@ -22,8 +22,6 @@ pub use diff::Counts;
 pub use packages::CellPackage;
 pub use state::{ReviewState, load as load_state};
 
-const LEGACY_GEOJSON: [&str; 3] = ["result.geojson", "buildings.geojson", "addresses_missing.geojson"];
-
 /// Review processing errors.
 #[derive(Debug)]
 pub enum ReviewError {
@@ -115,7 +113,6 @@ pub fn existing_outputs(municipality: &Municipality, cache_dir: &Path) -> Result
 
     let mut paths: Vec<PathBuf> = ["review_state.json", "buildings.osm", "addresses.osm"]
         .into_iter()
-        .chain(LEGACY_GEOJSON)
         .map(|name| dir.join(name))
         .filter(|path| path.exists())
         .collect();
@@ -189,14 +186,6 @@ pub fn run(
         let review_dir = out_dir.join("review");
         if review_dir.exists() {
             fs::remove_dir_all(&review_dir)?;
-        }
-
-        for name in LEGACY_GEOJSON {
-            match fs::remove_file(out_dir.join(name)) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error.into()),
-            }
         }
     }
 
@@ -639,15 +628,10 @@ mod tests {
             assert!(data_dir.join(name).is_file(), "missing {name}");
         }
 
-        for name in ["result.geojson", "buildings.geojson", "addresses_missing.geojson"] {
-            assert!(!data_dir.join(name).exists(), "unexpected {name}");
-        }
-
         let cell_dir = data_dir.join("review").join(&output.cells[0].number);
         for name in ["buildings.osm", "addresses.osm", "osm_bbox.txt"] {
             assert!(cell_dir.join(name).is_file(), "missing {name}");
         }
-        assert!(!cell_dir.join("buildings.geojson").exists());
 
         let state = super::load_state(&dir, &MUNICIPALITY)
             .unwrap()

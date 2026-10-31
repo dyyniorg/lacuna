@@ -143,7 +143,6 @@ struct StatusView {
 #[derive(Deserialize)]
 struct RunRequest {
     municipality: String,
-    #[serde(default)]
     overwrite: bool,
 }
 
