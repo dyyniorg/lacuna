@@ -48,4 +48,5 @@ jobs:
           zip: windows
           checksum: sha256
           locked: true
+          include: LICENSE,josm
           token: ${{ secrets.GITHUB_TOKEN }}
