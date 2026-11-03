@@ -677,14 +677,16 @@ mod tests {
         assert!(!output.round_id.is_empty());
         assert_eq!(output.cells.len(), 1);
 
-        for name in ["buildings.osm", "addresses.osm", "review_state.json"] {
+        for name in ["buildings.osm", "review_state.json"] {
             assert!(data_dir.join(name).is_file(), "missing {name}");
         }
+        assert!(!data_dir.join("addresses.osm").exists());
 
         let cell_dir = data_dir.join("review").join(&output.cells[0].number);
-        for name in ["buildings.osm", "addresses.osm", "osm_bbox.txt"] {
+        for name in ["buildings.osm", "osm_bbox.txt"] {
             assert!(cell_dir.join(name).is_file(), "missing {name}");
         }
+        assert!(!cell_dir.join("addresses.osm").exists());
 
         let state = super::load_state(&dir, &MUNICIPALITY)
             .unwrap()

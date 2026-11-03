@@ -249,11 +249,11 @@ function cellTable(cells, action) {
                         <tr>
                             <td><code>${escapeHtml(cell.number)}</code></td>
                             <td>${cell.skipped ? "Skipped" : cell.buildings ? "Reviewed" : "Pending"}</td>
-                            <td>${cell.addresses ? "Done" : "Pending"}</td>
+                            <td>${cell.addresses_empty ? "None" : cell.addresses ? "Done" : "Pending"}</td>
                             <td>
                                 ${copyButton(cell.download_url, "OSM URL")}
                                 ${cell.skipped ? "" : copyButton(cell.buildings_path, "buildings.osm")}
-                                ${copyButton(cell.addresses_path, "addresses.osm")}
+                                ${cell.addresses_empty ? "" : copyButton(cell.addresses_path, "addresses.osm")}
                             </td>
                             <td>${action(cell)}</td>
                         </tr>

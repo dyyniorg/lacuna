@@ -20,6 +20,16 @@ pub fn ensure_dir(path: &Path) -> Result<(), ReviewError> {
 }
 
 pub fn save_existing_osm(path: &Path, ways: &[ExistingWay]) -> Result<(), ReviewError> {
+    if ways.is_empty() {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+
+        return Ok(());
+    }
+
     let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     xml.push_str("<osm version=\"0.6\" generator=\"lacuna\">\n");
 

@@ -126,6 +126,7 @@ struct CellInfo {
     number: String,
     buildings: bool,
     addresses: bool,
+    addresses_empty: bool,
     skipped: bool,
     buildings_path: String,
     addresses_path: String,
@@ -644,14 +645,20 @@ fn cell_info(params: &Parameters, municipality: &Municipality, cell: &str, progr
         .to_string();
 
     let state = progress.cells.get(cell).cloned().unwrap_or_default();
+    let addresses_path = dir.join("addresses.osm");
+    let addresses_empty = match fs::read_to_string(&addresses_path) {
+        Ok(text) => !text.contains("<node") && !text.contains("<way"),
+        Err(_) => true,
+    };
 
     CellInfo {
         number: cell.to_string(),
         buildings: state.buildings,
         addresses: state.addresses,
+        addresses_empty,
         skipped: state.skipped,
         buildings_path: absolute_path(&dir.join("buildings.osm")),
-        addresses_path: absolute_path(&dir.join("addresses.osm")),
+        addresses_path: absolute_path(&addresses_path),
         download_url,
     }
 }
@@ -792,6 +799,11 @@ mod tests {
              https://www.openstreetmap.org/#map=15/61.01000/25.00000\n",
         )
         .unwrap();
+        fs::write(
+            cell_dir.join("addresses.osm"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<osm version=\"0.6\" generator=\"lacuna\">\n</osm>\n",
+        )
+        .unwrap();
 
         let progress = ReviewProgress::new(&[cell.to_string()]);
         let info = cell_info(&params, municipality, cell, &progress);
@@ -800,5 +812,6 @@ mod tests {
             info.download_url,
             "https://www.openstreetmap.org/#map=15/61.01000/25.00000"
         );
+        assert!(info.addresses_empty);
     }
 }
