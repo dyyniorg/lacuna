@@ -53,6 +53,8 @@ When proposals exist, the top-level `buildings.osm` and `addresses.osm` contain 
 
 Cells with no new building proposals have no `buildings.osm` file. The web UI shows them as `Skipped`, hides the buildings file button, and lets you proceed directly to the address review. The adjust step is not needed for those cells.
 
+Cells with no address fixes have no `addresses.osm` file. The web UI shows them as `None` and hides the addresses file button.
+
 ### Adjust behavior
 
 The adjust step recomputes only the cell `addresses.osm`. It reads the saved cell `buildings.osm` from disk, so save your edits first. Unsaved JOSM changes are ignored.
