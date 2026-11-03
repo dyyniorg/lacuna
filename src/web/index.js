@@ -1,30 +1,30 @@
-let session = null;
-let status = null;
-let selected = "";
-let pollTimer = null;
-let revealRound = false;
-let sessionRequest = 0;
-let cacheExpanded = false;
+let session = null
+let pStatus = null
+let selected = ""
+let pollTimer = null
+let revealRound = false
+let sessionRequest = 0
+let cacheExpanded = false
 
-const $ = (id) => document.getElementById(id);
+const $ = (id) => document.getElementById(id)
 
 async function api(path, options) {
-    const response = await fetch(path, options);
-    const text = await response.text();
+    const response = await fetch(path, options)
+    const text = await response.text()
 
-    let data;
+    let data
 
     try {
-        data = text ? JSON.parse(text) : {};
+        data = text ? JSON.parse(text) : {}
     } catch {
-        data = { error: text };
+        data = { error: text }
     }
 
     if (!response.ok) {
-        throw data;
+        throw data
     }
 
-    return data;
+    return data
 }
 
 function post(path, body) {
@@ -32,7 +32,7 @@ function post(path, body) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
-    });
+    })
 }
 
 function escapeHtml(value) {
@@ -40,190 +40,193 @@ function escapeHtml(value) {
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
+        .replace(/"/g, "&quot;")
 }
 
 function setError(message = "") {
-    $("error").textContent = message;
-    $("error").hidden = !message;
+    $("error").textContent = message
+    $("error").hidden = !message
 }
 
 function formatAge(seconds) {
     if (seconds === null || seconds === undefined) {
-        return "unknown";
+        return "unknown"
     }
 
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
+    const days = Math.floor(seconds / 86400)
+    const hours = Math.floor((seconds % 86400) / 3600)
 
-    return days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+    return days > 0 ? `${days}d ${hours}h` : `${hours}h`
 }
 
 function formatSize(bytes) {
     if (bytes < 1_000) {
-        return `${bytes} B`;
+        return `${bytes} B`
     }
 
-    const units = ["kB", "MB", "GB"];
-    let value = bytes / 1_000;
-    let unit = 0;
+    const units = ["kB", "MB", "GB"]
+    let value = bytes / 1_000
+    let unit = 0
 
     while (value >= 1_000 && unit < units.length - 1) {
-        value /= 1_000;
-        unit += 1;
+        value /= 1_000
+        unit += 1
     }
 
-    let text = value.toFixed(1);
+    let text = value.toFixed(1)
 
     if (text === "1000.0" && unit < units.length - 1) {
-        value /= 1_000;
-        unit += 1;
-        text = value.toFixed(1);
+        value /= 1_000
+        unit += 1
+        text = value.toFixed(1)
     }
 
-    return `${text} ${units[unit]}`;
+    return `${text} ${units[unit]}`
 }
 
 function copyButton(value, label) {
     if (!value) {
-        return "";
+        return ""
     }
 
-    return `<button data-copy="${escapeHtml(value)}">${label}</button>`;
+    return `<button data-copy="${escapeHtml(value)}">${label}</button>`
 }
 
 async function loadConfig() {
-    const data = await api("/api/config");
-    const select = $("municipality");
+    const data = await api("/api/config")
+    const select = $("municipality")
 
     for (const municipality of data.municipalities) {
-        const option = document.createElement("option");
-        option.value = municipality.code;
-        option.textContent = `${municipality.name} (${municipality.code})`;
-        select.appendChild(option);
+        const option = document.createElement("option")
+        option.value = municipality.code
+        option.textContent = `${municipality.name} (${municipality.code})`
+        select.appendChild(option)
     }
 
     if (data.default_municipality) {
-        select.value = data.default_municipality;
+        select.value = data.default_municipality
     }
 
-    select.addEventListener("change", onMunicipalityChange);
-    $("run").addEventListener("click", () => startRun(false));
+    select.addEventListener("change", onMunicipalityChange)
+    $("run").addEventListener("click", () => startRun(false))
     $("continue").addEventListener("click", () => {
-        revealRound = true;
-        applySession();
-    });
-    $("adjust").addEventListener("click", startAdjust);
-    $("show-completed").addEventListener("change", renderCells);
-    document.addEventListener("click", onDocumentClick);
+        revealRound = true
+        applySession()
+    })
+    $("adjust").addEventListener("click", startAdjust)
+    $("show-completed").addEventListener("change", renderCells)
+    document.addEventListener("click", onDocumentClick)
 
-    await pollStatus();
+    await pollStatus()
 
-    if (status && status.busy) {
-        startPolling();
+    if (pStatus && pStatus.busy) {
+        startPolling()
     }
 
     if (select.value) {
-        await onMunicipalityChange();
+        await onMunicipalityChange()
     }
 }
 
 async function onMunicipalityChange() {
-    sessionRequest += 1;
-    selected = $("municipality").value;
-    revealRound = false;
-    session = null;
-    $("round").hidden = true;
-    $("first-review").hidden = true;
-    $("adjust-report").hidden = true;
-    $("cells").innerHTML = "";
-    $("adjust-cell").innerHTML = "";
-    $("cache").innerHTML = "";
+    sessionRequest += 1
+    selected = $("municipality").value
+    revealRound = false
+    session = null
+    $("round").hidden = true
+    $("first-review").hidden = true
+    $("adjust-details").hidden = true
+    $("cells").innerHTML = ""
+    $("adjust-cell").innerHTML = ""
+    $("cache").innerHTML = ""
 
-    setError();
+    setError()
 
     if (!selected) {
-        $("run").disabled = true;
-        return;
+        $("run").disabled = true
+        return
     }
 
-    await loadSession();
-    renderStatus();
+    await loadSession()
+    renderStatus()
 }
 
 function renderCache() {
-    const cache = session.cache;
+    const cache = session.cache
     const cacheStatus =
         cache.entries.length === 0 || cache.entries.every((entry) => !entry.exists)
             ? "missing"
             : cache.entries.every((entry) => entry.exists && entry.fresh)
-                ? "ok"
-                : "partial";
+              ? "ok"
+              : "partial"
 
-    const entries = cache.entries.map((entry) => {
-        const state = entry.exists
-            ? `${formatSize(entry.size_bytes)}, updated ${formatAge(entry.age_seconds)} ago`
-            : "missing";
-        return `<li>${escapeHtml(entry.kind)}: <code>${escapeHtml(entry.path)}</code> (${escapeHtml(state)})</li>`;
-    }).join("");
+    const entries = cache.entries
+        .map((entry) => {
+            const state = entry.exists
+                ? `${formatSize(entry.size_bytes)}, updated ${formatAge(entry.age_seconds)} ago`
+                : "missing"
+            return `<li>${escapeHtml(entry.kind)}: <code>${escapeHtml(entry.path)}</code> (${escapeHtml(state)})</li>`
+        })
+        .join("")
 
     $("cache").innerHTML = `
         <p id="cache-toggle">Cache status: ${cacheStatus} (max. age: ${cache.max_age_days} days) &emsp; [click to ${cacheExpanded ? "hide" : "show"}]</p>
         <ul id="cache-list"${cacheExpanded ? "" : " hidden"}>${entries}</ul>
-    `;
+    `
 }
 
 async function loadSession() {
     if (!selected) {
-        return;
+        return
     }
 
-    const request = ++sessionRequest;
+    const request = ++sessionRequest
 
     try {
-        const data = await api(`/api/session?municipality=${encodeURIComponent(selected)}`);
+        const data = await api(`/api/session?municipality=${encodeURIComponent(selected)}`)
 
         if (request !== sessionRequest) {
-            return;
+            return
         }
 
-        session = data;
-        applySession();
+        session = data
+        applySession()
     } catch (error) {
         if (request === sessionRequest) {
-            setError(error.error || "Failed to load the review round.");
+            setError(error.error || "Failed to load the review round.")
         }
     }
 }
 
 function applySession() {
     if (!session) {
-        return;
+        return
     }
 
-    renderCache();
-    renderCells();
+    renderCache()
+    renderCells()
 
-    const hasCells = session.cells.length > 0;
+    const hasCells = session.cells.length > 0
 
     if (hasCells && !revealRound) {
-        const reviewed = session.cells.filter((cell) => cell.buildings).length;
-        const done = session.cells.filter((cell) => cell.addresses).length;
+        const reviewed = session.cells.filter((cell) => cell.buildings).length
+        const done = session.cells.filter((cell) => cell.addresses).length
         const roundLabel = /^\d+$/.test(session.round_id)
             ? new Date(Number(session.round_id) * 1000).toLocaleString()
-            : session.round_id;
-        $("round-summary").textContent = `Existing round ${roundLabel}: ${reviewed}/${session.cells.length} building cells reviewed, ${done}/${session.cells.length} address cells done.`;
-        $("round").hidden = false;
-        $("first-review").hidden = true;
-        $("adjust-report").hidden = true;
-        $("run").textContent = "Start new round";
+            : session.round_id
+        $("round-summary").textContent =
+            `Existing round ${roundLabel}: ${reviewed}/${session.cells.length} building cells reviewed, ${done}/${session.cells.length} address cells done.`
+        $("round").hidden = false
+        $("first-review").hidden = true
+        $("adjust-details").hidden = true
+        $("run").textContent = "Start new round"
 
-        return;
+        return
     }
 
-    $("round").hidden = true;
-    $("first-review").hidden = !hasCells;
-    $("run").textContent = hasCells ? "Start new round" : "Run review";
+    $("round").hidden = true
+    $("first-review").hidden = !hasCells
+    $("run").textContent = hasCells ? "Start new round" : "Run review"
 }
 
 function cellTable(cells, action) {
@@ -240,7 +243,9 @@ function cellTable(cells, action) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${cells.map((cell) => `
+                    ${cells
+                        .map(
+                            (cell) => `
                         <tr>
                             <td><code>${escapeHtml(cell.number)}</code></td>
                             <td>${cell.skipped ? "Skipped" : cell.buildings ? "Reviewed" : "Pending"}</td>
@@ -252,217 +257,226 @@ function cellTable(cells, action) {
                             </td>
                             <td>${action(cell)}</td>
                         </tr>
-                    `).join("")}
+                    `
+                        )
+                        .join("")}
                 </tbody>
             </table>
         </div>
-    `;
+    `
 }
 
 function renderCells() {
     if (!session) {
-        return;
+        return
     }
 
     const visibleCells = $("show-completed").checked
         ? session.cells
-        : session.cells.filter((cell) => !cell.addresses);
+        : session.cells.filter((cell) => !cell.addresses)
 
     $("cells").innerHTML = cellTable(visibleCells, (cell) => {
         if (cell.addresses) {
-            return "Done";
+            return "Done"
         }
 
         if (cell.buildings || cell.skipped) {
-            return `<button class="mark-done" data-cell="${escapeHtml(cell.number)}">Mark as done</button>`;
+            return `<button class="mark-done" data-cell="${escapeHtml(cell.number)}">Mark as done</button>`
         }
 
-        return "<span>Run adjust first</span>";
-    });
+        return "<span>Run adjust first</span>"
+    })
 
-    const adjustable = session.cells.filter((cell) => !cell.skipped && !cell.buildings);
-    const current = $("adjust-cell").value;
+    const adjustable = session.cells.filter((cell) => !cell.skipped && !cell.buildings)
+    const current = $("adjust-cell").value
 
     $("adjust-cell").innerHTML = adjustable
-        .map((cell) => `<option value="${escapeHtml(cell.number)}">${escapeHtml(cell.number)}</option>`)
-        .join("");
-    $("adjust").disabled = adjustable.length === 0;
+        .map(
+            (cell) =>
+                `<option value="${escapeHtml(cell.number)}">${escapeHtml(cell.number)}</option>`
+        )
+        .join("")
+    $("adjust").disabled = adjustable.length === 0
 
     if (current && adjustable.some((cell) => cell.number === current)) {
-        $("adjust-cell").value = current;
+        $("adjust-cell").value = current
     }
 }
 
 function hasAdjustableCells() {
-    return Boolean(session && session.cells.some((cell) => !cell.skipped && !cell.buildings));
+    return Boolean(session && session.cells.some((cell) => !cell.skipped && !cell.buildings))
 }
 
 async function startRun(overwrite) {
     if (!selected) {
-        setError("Select a municipality.");
-        return;
+        setError("Select a municipality.")
+        return
     }
 
-    setError();
+    setError()
 
     try {
-        await post("/api/run", { municipality: selected, overwrite });
-        revealRound = true;
-        startPolling();
+        await post("/api/run", { municipality: selected, overwrite })
+        revealRound = true
+        startPolling()
     } catch (error) {
         if (error.error === "overwrite_required" && !overwrite) {
-            if (confirm("Review output already exists. Overwriting will delete manual review edits. Continue?")) {
-                return startRun(true);
+            if (
+                confirm(
+                    "Review output already exists. Overwriting will delete manual review edits. Continue?"
+                )
+            ) {
+                return startRun(true)
             }
 
-            return;
+            return
         }
 
-        setError(error.error || "Run failed.");
+        setError(error.error || "Run failed.")
     }
 }
 
 async function startAdjust() {
-    const cell = $("adjust-cell").value;
+    const cell = $("adjust-cell").value
 
     if (!selected || !cell) {
-        setError("Select a municipality and a cell.");
-        return;
+        setError("Select a municipality and a cell.")
+        return
     }
 
-    setError();
+    setError()
 
     try {
-        await post("/api/adjust", { municipality: selected, cell });
-        revealRound = true;
-        startPolling();
+        await post("/api/adjust", { municipality: selected, cell })
+        revealRound = true
+        startPolling()
     } catch (error) {
-        setError(error.error || "Adjust failed.");
+        setError(error.error || "Adjust failed.")
     }
 }
 
 async function markDone(cell) {
     if (!selected) {
-        return;
+        return
     }
 
-    setError();
+    setError()
 
     try {
-        await post("/api/cells/done", { municipality: selected, cell });
-        await loadSession();
+        await post("/api/cells/done", { municipality: selected, cell })
+        await loadSession()
     } catch (error) {
-        setError(error.error || "Failed to mark the cell done.");
+        setError(error.error || "Failed to mark the cell done.")
     }
 }
 
 function startPolling() {
     if (!pollTimer) {
-        pollTimer = setInterval(pollStatus, 800);
+        pollTimer = setInterval(pollStatus, 800)
     }
 
-    pollStatus();
+    pollStatus()
 }
 
 async function pollStatus() {
     try {
-        status = await api("/api/status");
-        renderStatus();
+        pStatus = await api("/api/status")
+        renderStatus()
 
-        if (!status.busy) {
+        if (!pStatus.busy) {
             if (pollTimer) {
-                clearInterval(pollTimer);
-                pollTimer = null;
+                clearInterval(pollTimer)
+                pollTimer = null
             }
 
             if (selected) {
-                await loadSession();
+                await loadSession()
             }
         }
     } catch (error) {
-        setError(error.error || "Status check failed.");
+        setError(error.error || "Status check failed.")
     }
 }
 
 function renderStatus() {
-    if (!status) {
-        return;
+    if (!pStatus) {
+        return
     }
 
-    if (status.busy) {
-        const progress = status.progress || {};
-        const percent = progress.percent;
+    if (pStatus.busy) {
+        const progress = pStatus.progress || {}
+        const percent = progress.percent
+        const text =
+            `${escapeHtml(progress.stage || "Working")}: ${escapeHtml(progress.message || "")}` +
+            (percent === null || percent === undefined ? "" : ` (${percent}%)`)
+        const adjusting = progress.stage === "Adjust"
 
-        $("status").innerHTML = `
-            <p>${escapeHtml(progress.stage || "Working")}: ${escapeHtml(progress.message || "")}${percent === null || percent === undefined ? "" : ` (${percent}%)`}</p>
-        `;
-        $("run").disabled = true;
-        $("adjust").disabled = true;
+        $("status").innerHTML = adjusting ? "" : `<p>${text}</p>`
+        $("adjust-status").innerHTML = adjusting ? `<p>${text}</p>` : ""
+        $("adjust-status").hidden = !adjusting
+        $("run").disabled = true
+        $("adjust").disabled = true
     } else {
-        $("status").innerHTML = "";
-        $("run").disabled = !selected;
-        $("adjust").disabled = !hasAdjustableCells();
+        $("status").innerHTML = ""
+        $("adjust-status").hidden = true
+        $("run").disabled = !selected
+        $("adjust").disabled = !hasAdjustableCells()
     }
 
-    if (status.error && status.error_municipality === selected) {
-        setError(status.error);
+    if (pStatus.error && pStatus.error_municipality === selected) {
+        setError(pStatus.error)
     } else {
-        setError();
+        setError()
     }
 
-    if (status.last_adjust && status.last_adjust.municipality === selected) {
-        const adjust = status.last_adjust;
+    if (pStatus.last_adjust && pStatus.last_adjust.municipality === selected) {
+        const adjust = pStatus.last_adjust
         $("adjust-details").innerHTML = `
             <p>Cell <code>${escapeHtml(adjust.cell)}</code>: ${adjust.kept} kept buildings, ${adjust.removed} removed, ${adjust.placed} addresses kept on buildings, ${adjust.address_fixes} address fixes.</p>
             <p>Open the cell's <code>addresses.osm</code> path in JOSM for the address review.</p>
-        `;
-        $("adjust-report").hidden = false;
+        `
+        $("adjust-details").hidden = false
     } else {
-        $("adjust-report").hidden = true;
+        $("adjust-details").hidden = true
     }
 }
 
 async function onDocumentClick(event) {
-    const cacheToggle = event.target.closest("#cache-toggle");
+    const cacheToggle = event.target.closest("#cache-toggle")
 
     if (cacheToggle) {
-        cacheExpanded = !cacheExpanded;
-        renderCache();
-        return;
+        cacheExpanded = !cacheExpanded
+        renderCache()
+        return
     }
 
-    const copy = event.target.closest("[data-copy]");
+    const copy = event.target.closest("[data-copy]")
 
     if (copy) {
-        await copyText(copy.dataset.copy, copy);
-        return;
+        await copyText(copy.dataset.copy, copy)
+        return
     }
 
-    const done = event.target.closest(".mark-done");
+    const done = event.target.closest(".mark-done")
 
     if (done) {
-        await markDone(done.dataset.cell);
+        await markDone(done.dataset.cell)
     }
 }
 
 async function copyText(text, button) {
     try {
-        await navigator.clipboard.writeText(text);
-    } catch {
-        const area = document.createElement("textarea");
-        area.value = text;
-        document.body.appendChild(area);
-        area.select();
-        document.execCommand("copy");
-        area.remove();
+        await navigator.clipboard.writeText(text)
+    } catch (error) {
+        setError(error.message || "Failed to copy to clipboard.")
+        return
     }
 
-    button.classList.add("copied");
+    button.classList.add("copied")
 
     setTimeout(() => {
-        button.classList.remove("copied");
-    }, 1200);
+        button.classList.remove("copied")
+    }, 1200)
 }
 
-loadConfig().catch((error) => setError(error.error || "Failed to load the web interface."));
-
+loadConfig().catch((error) => setError(error.error || "Failed to load the web interface."))
