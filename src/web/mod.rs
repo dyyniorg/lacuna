@@ -20,6 +20,7 @@ use crate::utils::Parameters;
 use progress::ReviewProgress;
 
 const INDEX_HTML: &str = include_str!("index.html");
+const INDEX_JS: &str = include_str!("index.js");
 
 /// Runs the local HTTP server.
 pub fn serve(params: Parameters) -> Result<(), String> {
@@ -167,6 +168,14 @@ impl HttpResponse {
         }
     }
 
+    fn javascript(body: &'static str) -> Self {
+        Self {
+            status: 200,
+            content_type: "text/javascript; charset=utf-8",
+            body: body.to_string(),
+        }
+    }
+
     fn text(status: u16, body: impl Into<String>) -> Self {
         Self {
             status,
@@ -212,6 +221,7 @@ fn handle(mut request: Request, state: Arc<Mutex<AppState>>) -> Result<(), Strin
     let response = if is_get {
         match path {
             "/" => HttpResponse::html(INDEX_HTML),
+            "/index.js" => HttpResponse::javascript(INDEX_JS),
             "/api/config" => config_response(&state),
             "/api/session" => session_response(&state, query),
             "/api/status" => status_response(&state),
