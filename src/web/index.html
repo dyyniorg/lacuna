@@ -88,15 +88,25 @@
 
     <section id="first-review" hidden>
         <h2>Review</h2>
-        <p>Review each cell's buildings, adjust the addresses, and upload the changes. Cells marked <code>Skipped</code> have no building proposals and do not need Adjust; review their addresses directly.</p>
+        <p>Review each cell's buildings, adjust the addresses, and save the modified file. Cells marked "skipped" don't contain any building-related changes, proceed directly to reviewing their addresses.</p>
         <ol>
             <li>Copy the cell's OSM URL from the table and paste it into JOSM.</li>
-            <li>Open the cell's <code>buildings.osm</code> path in JOSM.</li>
-            <li>Review the new buildings. Remove <code>lacuna:review</code> when checked. Keep <code>lacuna:ref</code>.</li>
+            <li>Open the cell's <code>buildings.osm</code> layer in JOSM.</li>
+            <li>Review the new buildings. Remove <code>lacuna:review</code> when checked, but not <code>lacuna:ref</code>.</li>
             <li>Save <code>buildings.osm</code> back to the same path.</li>
         </ol>
-        <p>Once the cell is ready for address review, open only its <code>addresses.osm</code> layer in JOSM, activate the downloaded OSM data layer, and run <code>apply_addresses.js</code>. The script moves the address tags onto the OSM data layer. Merge <code>buildings.osm</code> when the cell has that file, remove all <code>lacuna:*</code> tags, and upload only the downloaded OSM data layer.</p>
-        <p>Changeset source for address-only edits: <code>Ryhti (Syke); CC BY 4.0</code>. When the changeset also adds buildings: <code>MML Maastotietokanta; Ryhti (Syke); CC BY 4.0</code>.</p>
+        <p>Once the <code>buildings.osm</code> is reviewed, proceed to the <code>addresses.osm</code> layer.</p>
+        <ol>
+            <li>Review the address proposals.</li>
+            <li>Merge the reviewed <code>buildings.osm</code> layer into the OSM layer.</li>
+            <li>Make the OSM layer the active layer and run the <code>apply_addresses.js</code> script that migrates the <code>addr:*</code> tags from the custom layer to the OSM layer.</li>
+            <li>Make sure there's no leftover <code>lacuna:*</code> tags, then upload the changes to OSM.</li>
+        </ol>
+        <p>Changeset source:</p>
+        <ul>
+            <li>Only addresses: <code>Ryhti (Syke); CC BY 4.0</code></li>
+            <li>Addresses and buildings: <code>MML Maastotietokanta; Ryhti (Syke); CC BY 4.0</code></li>
+        </ul>
         <label>
             <input type="checkbox" id="show-completed">
             Show completed cells
