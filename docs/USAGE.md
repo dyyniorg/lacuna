@@ -48,7 +48,7 @@ When proposals exist, the top-level `buildings.osm` and `addresses.osm` contain 
 4. In the `buildings.osm` layer, review and adjust geometries where needed. Save changes of the `buildings.osm` layer, and afterwards merge its data into the OSM layer.
 5. Click "Adjust" in the web UI. This recomputes the cell `addresses.osm` from the buildings you kept and marks the building step done for the cell.
 6. Open only the cell `addresses.osm` layer. Activate the downloaded OSM data layer and run `josm/apply_addresses.js`. The script migrates the address tags from the custom layer onto the OSM data layer.
-7. Review the changes and upload only the downloaded OSM data layer. Remember to remove all `lacuna:*` tags before upload.
+7. Review the changes and upload only the downloaded OSM data layer. Remember to remove all remaining `lacuna:*` tags before upload.
 8. Mark the cell done in the web UI. This marks the address step done for the cell.
 
 Cells with no new building proposals have no `buildings.osm` file. The web UI shows them as `Skipped`, hides the buildings file button, and lets you proceed directly to the address review. The adjust step is not needed for those cells.
@@ -57,12 +57,11 @@ Cells with no address fixes have no `addresses.osm` file. The web UI shows them 
 
 ### Adjust behavior
 
-The adjust step recomputes only the cell `addresses.osm`. It reads the saved cell `buildings.osm` from disk, so save your edits first. Unsaved JOSM changes are ignored.
+The adjust step recomputes the cell `addresses.osm` and removes the `lacuna:ref` tags from the saved `buildings.osm`. It reads `buildings.osm` from disk, so save your edits first. Unsaved JOSM changes are ignored.
 
 - The tool compares the missing-building list in `review_state.json` with the `lacuna:ref` tags in the saved `buildings.osm`. Buildings that disappeared are treated as deleted and cannot receive addresses.
 - Address tags already present on kept buildings are treated as final and are not proposed again.
 - Only existing OSM ways can receive new address proposals. New buildings keep the address tags written into `buildings.osm` during the review run (the first run).
-- Doesn't modify `buildings.osm`.
 
 ## Overwrite behavior
 
