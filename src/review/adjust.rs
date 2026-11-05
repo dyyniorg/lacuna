@@ -24,7 +24,7 @@ pub struct AdjustOutput {
     pub address_fixes: usize,
 }
 
-/// Recomputes `addresses.osm` for one reviewed cell without modifying `buildings.osm`.
+/// Recomputes `addresses.osm` for one reviewed cell and removes `lacuna:ref` from `buildings.osm`.
 pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Result<AdjustOutput, ReviewError> {
     let cache = Cache::new(cache_dir.to_path_buf());
 
@@ -125,6 +125,10 @@ pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Resu
 
     osm_io::save_existing_osm(&cell_dir.join("addresses.osm"), &address_ways)?;
 
+    if buildings_path.is_file() {
+        strip_tag(&buildings_path, "lacuna:ref")?;
+    }
+
     Ok(AdjustOutput {
         kept: entries.len(),
         removed: overrides.deleted.len(),
@@ -137,6 +141,34 @@ fn load(cache: &Cache, municipality: &Municipality, name: &str) -> Result<Value,
     let path = cache.municipality_file(municipality, name);
 
     cache.load_json(&path)?.ok_or(ReviewError::MissingInput(path))
+}
+
+fn strip_tag(path: &Path, key: &str) -> Result<(), ReviewError> {
+    let text = std::fs::read_to_string(path)?;
+    let ranges = {
+        let document = Document::parse(&text)
+            .map_err(|error| ReviewError::InvalidData(format!("invalid XML in buildings.osm: {error}")))?;
+
+        document
+            .descendants()
+            .filter(|node| node.has_tag_name("tag") && node.attribute("k") == Some(key))
+            .map(|node| node.range())
+            .collect::<Vec<_>>()
+    };
+
+    if ranges.is_empty() {
+        return Ok(());
+    }
+
+    let mut cleaned = text;
+
+    for range in ranges.into_iter().rev() {
+        cleaned.replace_range(range, "");
+    }
+
+    std::fs::write(path, cleaned)?;
+
+    Ok(())
 }
 
 fn parse_buildings_osm(path: &Path) -> Result<Vec<Vec<(String, String)>>, ReviewError> {

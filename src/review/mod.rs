@@ -721,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn adjust_moves_address_to_existing_way_and_keeps_buildings_file() {
+    fn adjust_moves_address_to_existing_way_and_strips_ref() {
         let dir = TempDir::new("review", "adjust");
         let data_dir = dir.join(MUNICIPALITY.slug());
         fs::create_dir_all(&data_dir).unwrap();
@@ -776,7 +776,10 @@ mod tests {
         let addresses_osm = fs::read_to_string(cell_dir.join("addresses.osm")).unwrap();
         assert!(addresses_osm.contains("way id=\"200\""));
         assert!(addresses_osm.contains("addr:housenumber\" v=\"2\""));
-        assert_eq!(fs::read_to_string(&buildings_path).unwrap(), kept_osm);
+
+        let buildings_osm = fs::read_to_string(&buildings_path).unwrap();
+        assert!(buildings_osm.contains("<tag k=\"building\" v=\"yes\"/>"));
+        assert!(!buildings_osm.contains("lacuna:ref"));
     }
 
     #[test]
