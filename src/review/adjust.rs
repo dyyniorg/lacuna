@@ -105,16 +105,13 @@ pub fn adjust(municipality: &Municipality, cache_dir: &Path, cell: &str) -> Resu
             continue;
         };
 
-        let owner_in_cell = fix
+        let owner_point = fix
             .owner
             .as_ref()
             .and_then(|owner| owner_points.get(owner.as_str()))
-            .is_some_and(|point| packages::inside_bbox(*point, &target.base_bbox));
+            .copied();
 
-        let way_in_cell =
-            packages::feature_center(feature).is_some_and(|center| packages::inside_bbox(center, &target.base_bbox));
-
-        if !owner_in_cell && !way_in_cell {
+        if !packages::address_in_bbox(feature, owner_point, &target.base_bbox) {
             continue;
         }
 

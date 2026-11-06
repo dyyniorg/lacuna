@@ -655,6 +655,76 @@ mod tests {
     }
 
     #[test]
+    fn addresses_use_owner_point_instead_of_way_center() {
+        let dir = TempDir::new("review", "address-owner-point");
+        let review_dir = dir.join("review");
+        let bbox = ingest::BBox {
+            min_lon: 24.98,
+            min_lat: 60.98,
+            max_lon: 25.10,
+            max_lat: 61.10,
+        };
+        let official = collection(vec![
+            official("A", "B1", "P1", 25.001, 61.001),
+            official("B", "B2", "P2", 25.041, 61.001),
+        ]);
+        let address_missing = vec![feature(
+            square(25.04, 61.001, 25.06, 61.002),
+            json!({
+                "official_address": {
+                    "housenumber": "1",
+                    "street": "Testikatu",
+                    "postcode": "17800",
+                    "city": "Kuhmoinen",
+                },
+                "owner_point": [25.001, 61.001],
+            }),
+        )]
+        .into_iter()
+        .map(|mut feature| {
+            feature["id"] = json!("way/100");
+            feature
+        })
+        .collect::<Vec<_>>();
+
+        let packages =
+            packages::write_packages(&review_dir, &official, &collection(Vec::new()), &address_missing, &bbox)
+                .expect("failed to write packages");
+
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].number, "01_00");
+        assert_eq!(packages[0].addresses, 1);
+        assert!(review_dir.join("01_00").join("addresses.osm").is_file());
+        assert!(!review_dir.join("01_01").exists());
+    }
+
+    #[test]
+    fn address_without_owner_uses_way_center() {
+        let address = feature(square(25.04, 61.001, 25.06, 61.002), json!({}));
+        let owner_cell = ingest::BBox {
+            min_lon: 24.98,
+            min_lat: 61.0,
+            max_lon: 25.02,
+            max_lat: 61.02,
+        };
+        let center_cell = ingest::BBox {
+            min_lon: 25.02,
+            min_lat: 61.0,
+            max_lon: 25.06,
+            max_lat: 61.02,
+        };
+
+        assert!(!packages::address_in_bbox(&address, None, &owner_cell));
+        assert!(packages::address_in_bbox(&address, None, &center_cell));
+        assert!(packages::address_in_bbox(&address, Some((25.001, 61.001)), &owner_cell));
+        assert!(!packages::address_in_bbox(
+            &address,
+            Some((25.001, 61.001)),
+            &center_cell
+        ));
+    }
+
+    #[test]
     fn run_writes_osm_outputs_and_minimal_state() {
         let dir = TempDir::new("review", "run");
         let data_dir = dir.join(MUNICIPALITY.slug());
@@ -718,6 +788,51 @@ mod tests {
         assert_eq!(adjust.kept, 1);
         assert_eq!(adjust.removed, 0);
         assert_eq!(adjust.address_fixes, 0);
+    }
+
+    #[test]
+    fn adjust_assigns_address_only_to_owner_cell() {
+        let dir = TempDir::new("review", "adjust-owner-cell");
+        let data_dir = dir.join(MUNICIPALITY.slug());
+        fs::create_dir_all(&data_dir).unwrap();
+
+        let official = collection(vec![
+            official("M", "BM", "P2", 25.020, 61.020),
+            official("N", "BN", "P2", 25.061, 61.020),
+        ]);
+        let nls = collection(vec![nls("M1", 25.019, 61.019, 25.021, 61.021)]);
+        let osm = collection(vec![osm_way("way/200", 25.065, 61.020, 25.066, 61.021, None, None)]);
+        let parcels = collection(vec![parcel("P2", 25.017, 61.017, 25.075, 61.023)]);
+        let addresses = collection(vec![address("BM", "2", "Testikatu", 25.020, 61.020)]);
+
+        for (name, value) in [
+            ("ryhti_buildings.json", &official),
+            ("ryhti_addresses.json", &addresses),
+            ("nls_footprints.json", &nls),
+            ("osm_buildings.json", &osm),
+            ("parcels.json", &parcels),
+        ] {
+            fs::write(data_dir.join(name), serde_json::to_string(value).unwrap()).unwrap();
+        }
+
+        let state = super::ReviewState {
+            round_id: "test-round".to_string(),
+            missing_by_cell: BTreeMap::new(),
+        };
+        super::state::save(&dir, &MUNICIPALITY, &state).unwrap();
+
+        let owner_dir = data_dir.join("review").join("01_00");
+        let other_dir = data_dir.join("review").join("01_01");
+        fs::create_dir_all(&owner_dir).unwrap();
+        fs::create_dir_all(&other_dir).unwrap();
+
+        let owner = super::adjust(&MUNICIPALITY, &dir, "01_00").unwrap();
+        assert_eq!(owner.address_fixes, 1);
+        assert!(owner_dir.join("addresses.osm").is_file());
+
+        let other = super::adjust(&MUNICIPALITY, &dir, "01_01").unwrap();
+        assert_eq!(other.address_fixes, 0);
+        assert!(!other_dir.join("addresses.osm").exists());
     }
 
     #[test]

@@ -101,10 +101,7 @@ pub fn write_packages(
 
         let addresses_here: Vec<Value> = address_missing
             .iter()
-            .filter(|feature| {
-                let center_inside = feature_center(feature).is_some_and(|center| inside_bbox(center, &cell.base_bbox));
-                center_inside || property_in_bbox(feature, "owner_point", &cell.base_bbox)
-            })
+            .filter(|feature| address_in_cell(feature, &cell.base_bbox))
             .cloned()
             .collect();
 
@@ -194,6 +191,22 @@ pub fn feature_center(feature: &Value) -> Option<(f64, f64)> {
 
 pub fn inside_bbox(point: (f64, f64), bbox: &BBox) -> bool {
     point.0 >= bbox.min_lon && point.0 < bbox.max_lon && point.1 >= bbox.min_lat && point.1 < bbox.max_lat
+}
+
+fn address_in_cell(feature: &Value, bbox: &BBox) -> bool {
+    let owner_point = feature
+        .get("properties")
+        .and_then(|properties| properties.get("owner_point"))
+        .and_then(point_of_coordinates);
+
+    address_in_bbox(feature, owner_point, bbox)
+}
+
+pub fn address_in_bbox(feature: &Value, owner_point: Option<(f64, f64)>, bbox: &BBox) -> bool {
+    owner_point.map_or_else(
+        || feature_center(feature).is_some_and(|center| inside_bbox(center, bbox)),
+        |point| inside_bbox(point, bbox),
+    )
 }
 
 fn property_in_bbox(feature: &Value, key: &str, bbox: &BBox) -> bool {
