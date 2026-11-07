@@ -35,6 +35,12 @@ pub struct Parameters {
     /// Municipality code selected for this run. `None` prevents a CLI run and
     /// lets the web UI choose the municipality.
     municipality: Option<String>,
+    /// OSM username used to look up the latest changeset for statistics.
+    osm_user: Option<String>,
+    /// Statistics backend URL.
+    stats_url: Option<String>,
+    /// Statistics backend bearer token.
+    stats_token: Option<String>,
 }
 
 impl Default for Parameters {
@@ -48,6 +54,9 @@ impl Default for Parameters {
             overwrite: false,
             fetch: false,
             municipality: None,
+            osm_user: None,
+            stats_url: None,
+            stats_token: None,
         }
     }
 }
@@ -87,6 +96,14 @@ impl Parameters {
 
     pub fn municipality(&self) -> Option<&str> {
         self.municipality.as_deref()
+    }
+
+    pub fn stats(&self) -> Option<(&str, &str, &str)> {
+        Some((
+            self.osm_user.as_deref()?,
+            self.stats_url.as_deref()?,
+            self.stats_token.as_deref()?,
+        ))
     }
 }
 
@@ -144,6 +161,24 @@ pub fn parse_args(raw_args: &[String]) -> Result<Parameters, InvalidArgError> {
             }
             "--overwrite" => params.overwrite = true,
             "--fetch" => params.fetch = true,
+            "--osm-user" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| InvalidArgError::new("The --osm-user option requires a username"))?;
+                params.osm_user = Some(value.clone());
+            }
+            "--stats-url" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| InvalidArgError::new("The --stats-url option requires a URL"))?;
+                params.stats_url = Some(value.clone());
+            }
+            "--stats-token" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| InvalidArgError::new("The --stats-token option requires a token"))?;
+                params.stats_token = Some(value.clone());
+            }
             other => {
                 return Err(InvalidArgError::new(format!("Unknown argument: {other}")));
             }
@@ -157,6 +192,17 @@ pub fn parse_args(raw_args: &[String]) -> Result<Parameters, InvalidArgError> {
 
     if modes > 1 {
         return Err(InvalidArgError::new("Use only one of --fetch, --review, or --adjust"));
+    }
+
+    let stats = [&params.osm_user, &params.stats_url, &params.stats_token]
+        .into_iter()
+        .filter(|value| value.is_some())
+        .count();
+
+    if stats != 0 && stats != 3 {
+        return Err(InvalidArgError::new(
+            "Use --osm-user, --stats-url, and --stats-token together",
+        ));
     }
 
     Ok(params)
@@ -196,6 +242,33 @@ pub fn now_id() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs().to_string())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn stats_flags_must_be_complete() {
+        assert!(parse_args(&args(&["--osm-user", "tester"])).is_err());
+        assert!(parse_args(&args(&["--stats-url", "http://localhost/stats"])).is_err());
+        assert!(parse_args(&args(&["--stats-token", "token"])).is_err());
+        assert!(
+            parse_args(&args(&[
+                "--osm-user",
+                "tester",
+                "--stats-url",
+                "http://localhost/stats",
+                "--stats-token",
+                "token",
+            ]))
+            .is_ok()
+        );
+    }
 }
 
 #[cfg(test)]

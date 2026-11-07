@@ -25,6 +25,7 @@ use crate::utils;
 pub use cache::Cache;
 pub use error::IngestError;
 pub use geo::{BBox, bbox_of_points, outer_rings, point_of_coordinates, point_of_feature};
+pub(crate) use http::user_agent;
 pub use report::{Progress, Reporter, Stage};
 
 /// All input data needed by the review stage.

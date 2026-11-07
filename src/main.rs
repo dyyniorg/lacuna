@@ -1,6 +1,7 @@
 mod config;
 mod ingest;
 mod review;
+mod stats;
 mod utils;
 mod web;
 
@@ -47,6 +48,11 @@ fn main() {
 
         match review::run(&data, municipality, params.cache_dir(), params.overwrite()) {
             Ok(output) => {
+                if params.stats().is_some() {
+                    stats::write_produced(params.cache_dir(), municipality, &output.round_id, &output.cells)
+                        .unwrap_or_else(|error| fatal_exit("Statistics failed", error));
+                }
+
                 print_review_output(&output);
                 return;
             }

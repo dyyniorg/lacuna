@@ -15,6 +15,7 @@ use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 use crate::config::{self, Municipality};
 use crate::ingest::{Cache, IngestClient, Progress as IngestProgress, Reporter};
 use crate::review;
+use crate::stats;
 use crate::utils::Parameters;
 
 use progress::ReviewProgress;
@@ -503,6 +504,11 @@ fn do_run(
 
     let output = review::run(&data, municipality, params.cache_dir(), overwrite).map_err(|error| error.to_string())?;
 
+    if params.stats().is_some() {
+        stats::write_produced(params.cache_dir(), municipality, &output.round_id, &output.cells)
+            .map_err(|error| error.to_string())?;
+    }
+
     set_progress(state, "Review", "Writing review progress");
 
     let cells: Vec<String> = output.cells.iter().map(|cell| cell.number.clone()).collect();
@@ -569,9 +575,30 @@ fn mark_done(state: &Arc<Mutex<AppState>>, body: &str) -> Result<HttpResponse, H
     let mut progress =
         load_or_create_progress(&params, municipality).map_err(|error| HttpResponse::error(500, error))?;
 
+    let already_done = progress.cells.get(&request.cell).is_some_and(|entry| entry.addresses);
+
     progress
         .set_addresses(&request.cell)
         .map_err(|error| HttpResponse::error(409, error))?;
+
+    if !already_done && let Some((osm_user, stats_url, stats_token)) = params.stats() {
+        let produced = stats::load_produced(params.cache_dir(), municipality, &progress.round_id, &request.cell)
+            .map_err(|error| HttpResponse::error(500, error))?;
+
+        stats::record_uploaded(
+            params.cache_dir(),
+            municipality,
+            &progress.round_id,
+            &request.cell,
+            produced,
+            stats::Config {
+                osm_user,
+                url: stats_url,
+                token: stats_token,
+            },
+        )
+        .map_err(|error| HttpResponse::error(502, error))?;
+    }
 
     save_progress(&params, municipality, &progress)?;
 

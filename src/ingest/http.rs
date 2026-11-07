@@ -18,7 +18,7 @@ const MAX_DELAY: Duration = Duration::from_secs(160);
 const MAX_ATTEMPTS: usize = 8;
 const PROGRESS_STEP: u64 = 8 << 20;
 
-fn user_agent() -> String {
+pub(crate) fn user_agent() -> String {
     format!("{}/{} ({})", VERSION, PROG_NAME, REPO_URL)
 }
 
