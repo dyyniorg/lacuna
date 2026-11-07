@@ -50,6 +50,11 @@ Use only one of `--review`, `--fetch`, or `--adjust` at a time.
 | `--cache-max-age <days>` | `7` | Maximum age of a cached resource. Use `0` to force a refresh |
 | `--listen-all` | off | Listen on `0.0.0.0:3000` instead of `localhost:3000` |
 | `--municipality <code>` | none | Municipality code for CLI modes |
+| `--osm-user <name>` | none | OSM username used for uploaded-change statistics |
 | `--overwrite` | off | Replace existing review output without confirmation |
+| `--stats-token <token>` | none | Bearer token for the statistics backend |
+| `--stats-url <url>` | none | Statistics backend endpoint |
+
+With statistics enabled (all `--osm-user`, `--stats-url`, and `--stats-token` supplied), each review run writes per-cell produced counts to `<cache>/<municipality>/review_stats.json`. Marking a cell done appends a completion event to `<cache>/stats.jsonl` and posts it to the stats URL, using the latest changeset from the configured OSM user.
 
 Without `--overwrite`, the CLI review mode stops when review output exists. The web UI asks for confirmation instead.
