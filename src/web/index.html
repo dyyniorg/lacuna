@@ -6,6 +6,45 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Web interface</title>
 <style>
+    :root {
+        color-scheme: dark;
+        --bg: #0d1117;
+        --surface: #161b22;
+        --text: #e6edf3;
+        --border: #30363d;
+        --row-special: #21262d;
+        --row-ready: #1b2f4d;
+        --row-done: #163a26;
+    }
+
+    body {
+        background: var(--bg);
+        color: var(--text);
+    }
+
+    select,
+    button {
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
+    }
+
+    #error {
+        color: #f85149;
+    }
+
+    .row-special {
+        background: var(--row-special);
+    }
+
+    .row-ready {
+        background: var(--row-ready);
+    }
+
+    .row-done {
+        background: var(--row-done);
+    }
+
     button[data-copy] {
         position: relative;
     }
@@ -16,7 +55,7 @@
 
     button[data-copy].copied::after {
         content: "Copied";
-        color: ButtonText;
+        color: var(--text);
         position: absolute;
         inset: 0;
         display: flex;
@@ -50,7 +89,7 @@
         position: sticky;
         top: 0;
         z-index: 1;
-        background: Canvas;
+        background: var(--surface);
         box-shadow: 0 1px 0 currentColor;
     }
 

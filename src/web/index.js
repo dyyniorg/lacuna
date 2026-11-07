@@ -229,6 +229,18 @@ function applySession() {
     $("run").textContent = hasCells ? "Start new round" : "Run review"
 }
 
+function rowClass(cell) {
+    if (cell.addresses) {
+        return "row-done"
+    }
+
+    if (cell.skipped || cell.addresses_empty) {
+        return "row-special"
+    }
+
+    return cell.buildings ? "row-ready" : ""
+}
+
 function cellTable(cells, action) {
     return `
         <div class="cell-table-scroll">
@@ -246,7 +258,7 @@ function cellTable(cells, action) {
                     ${cells
                         .map(
                             (cell) => `
-                        <tr>
+                        <tr class="${rowClass(cell)}">
                             <td><code>${escapeHtml(cell.number)}</code></td>
                             <td>${cell.skipped ? "Skipped" : cell.buildings ? "Reviewed" : "Pending"}</td>
                             <td>${cell.addresses_empty ? "None" : cell.addresses ? "Done" : "Pending"}</td>
