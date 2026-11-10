@@ -18,7 +18,7 @@ For a given municipality, the workflow is:
 2. Merge Ryhti building points with NLS building footprints. Footprints that do not match a current Ryhti point are discarded.
 3. Compare the merged building data with existing OSM buildings from the PBF extract by geometry, using an R-tree.
 4. Assign official addresses to existing OSM buildings and to missing building candidates from the comparison.
-5. Split the result into grid cells of approximately 2x2 km.
+5. Split the result into WGS 84 (EPSG:4326) grid cells of 0.04 by 0.02 degrees, approximately 2x2 km in southern Finland.
 
 See [`docs/PIPELINE.md`](docs/PIPELINE.md) for a detailed description of the matching process.
 
@@ -51,10 +51,10 @@ Use only one of `--review`, `--fetch`, or `--adjust` at a time.
 | `--listen-all` | off | Listen on `0.0.0.0:3000` instead of `localhost:3000` |
 | `--municipality <code>` | none | Municipality code for CLI modes |
 | `--osm-user <name>` | none | OSM username used for uploaded-change statistics |
-| `--overwrite` | off | Replace existing review output without confirmation |
+| `--overwrite` | off | Replace existing review output, reset progress, and skip confirmation |
 | `--stats-token <token>` | none | Bearer token for the statistics backend |
 | `--stats-url <url>` | none | Statistics backend endpoint |
 
 With statistics enabled (all `--osm-user`, `--stats-url`, and `--stats-token` supplied), each review run writes per-cell produced counts to `<cache>/<municipality>/review_stats.json`. Marking a cell done appends a completion event to `<cache>/stats.jsonl` and posts it to the stats URL, using the latest changeset from the configured OSM user.
 
-Without `--overwrite`, the CLI review mode stops when review output exists. The web UI asks for confirmation instead.
+Without `--overwrite`, the CLI review mode stops when review output exists. The web UI asks for confirmation instead, and that confirmation keeps saved progress.

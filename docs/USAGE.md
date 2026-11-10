@@ -40,6 +40,8 @@ data/
 
 When proposals exist, the top-level `buildings.osm` and `addresses.osm` contain all proposals for the whole municipality. The files under `review/<cell>` subdirectories essentially contain the same data split into smaller areas for easier handling. The `.osm` review package files use OSM XML (supported directly in JOSM).
 
+Review cells use a fixed national grid in WGS 84 (EPSG:4326) with origin 17.0E, 57.0N and cell size 0.04 by 0.02 degrees. The grid generation is deterministic, and produces cell IDs of form `{row:03}_{col:03}`. Cells without any official building points are not included to the reviewal process.
+
 ## JOSM workflow
 
 1. Run the review and select a cell in the web UI.
@@ -65,5 +67,5 @@ The adjust step recomputes the cell `addresses.osm` and removes the `lacuna:ref`
 
 ## Overwrite behavior
 
-Existing municipality-specific review output is not replaced unless you confirm that in the web UI or use `--overwrite` via the CLI.
+Existing municipality-specific review output is not replaced unless you confirm that in the web UI or use `--overwrite` via the CLI. Using `--overwrite` also resets saved cell progress. Confirming overwrite in the web UI replaces review output but keeps progress.
 
