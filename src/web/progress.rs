@@ -41,10 +41,8 @@ impl ReviewProgress {
         }
     }
 
-    /// Keeps only current cells and adds missing ones.
+    /// Adds current cells without removing historic ones.
     pub fn sync_cells(&mut self, cells: &[String]) {
-        self.cells.retain(|number, _| cells.iter().any(|cell| cell == number));
-
         for cell in cells {
             self.cells.entry(cell.clone()).or_default();
         }
@@ -121,9 +119,11 @@ mod tests {
         assert!(progress.cells["01_00"].addresses);
 
         progress.sync_cells(&["02_00".to_string(), "03_00".to_string()]);
-        assert!(!progress.cells.contains_key("01_00"));
+        assert!(progress.cells.contains_key("01_00"));
         assert!(progress.cells.contains_key("02_00"));
         assert!(progress.cells.contains_key("03_00"));
+        assert!(progress.cells["01_00"].buildings);
+        assert!(progress.cells["01_00"].addresses);
         assert!(!progress.cells["02_00"].buildings);
 
         save(&path, &progress).unwrap();

@@ -479,10 +479,6 @@ fn do_run(
     municipality: &'static Municipality,
     overwrite: bool,
 ) -> Result<review::ReviewOutput, String> {
-    if overwrite {
-        let _ = fs::remove_file(progress::path(params.cache_dir(), municipality));
-    }
-
     let reporter_state = Arc::clone(state);
 
     let reporter = Reporter::new(move |progress: IngestProgress| {
@@ -509,13 +505,10 @@ fn do_run(
             .map_err(|error| error.to_string())?;
     }
 
-    set_progress(state, "Review", "Writing review progress");
-
-    let cells: Vec<String> = output.cells.iter().map(|cell| cell.number.clone()).collect();
-    let progress = ReviewProgress::with_round_id(&cells, output.round_id.clone());
-    let _guard = progress_lock();
-
-    progress::save(&progress::path(params.cache_dir(), municipality), &progress)?;
+    if params.overwrite() {
+        let _guard = progress_lock();
+        reset_progress(params, municipality);
+    }
 
     Ok(output)
 }
@@ -617,6 +610,10 @@ fn save_progress(
         .map_err(|error| HttpResponse::error(500, error))
 }
 
+pub(crate) fn reset_progress(params: &Parameters, municipality: &Municipality) {
+    let _ = fs::remove_file(progress::path(params.cache_dir(), municipality));
+}
+
 fn load_or_create_progress(params: &Parameters, municipality: &Municipality) -> Result<ReviewProgress, String> {
     let cells = review::review_cells(municipality, params.cache_dir()).map_err(|error| error.to_string())?;
 
@@ -624,15 +621,14 @@ fn load_or_create_progress(params: &Parameters, municipality: &Municipality) -> 
     let state = review::load_state(params.cache_dir(), municipality).map_err(|error| error.to_string())?;
     let existing = progress::load(&path)?;
 
-    let stale = match (&existing, &state) {
-        (Some(progress), Some(state)) => !state.round_id.is_empty() && progress.round_id != state.round_id,
-        _ => false,
-    };
+    let mut progress = existing.unwrap_or_else(|| new_progress(&cells, state.as_ref()));
 
-    let mut progress = if stale {
-        new_progress(&cells, state.as_ref())
-    } else {
-        existing.unwrap_or_else(|| new_progress(&cells, state.as_ref()))
+    let round_changed = match &state {
+        Some(state) if !state.round_id.is_empty() && progress.round_id != state.round_id => {
+            progress.round_id = state.round_id.clone();
+            true
+        }
+        _ => false,
     };
 
     let before = progress.cells.clone();
@@ -646,7 +642,7 @@ fn load_or_create_progress(params: &Parameters, municipality: &Municipality) -> 
         }
     }
 
-    if stale || progress.cells != before || !path.exists() {
+    if round_changed || progress.cells != before || !path.exists() {
         progress::save(&path, &progress)?;
     }
 
@@ -784,7 +780,7 @@ mod tests {
     }
 
     #[test]
-    fn progress_resets_when_review_state_round_changes() {
+    fn progress_carries_over_when_review_state_round_changes() {
         let dir = TempDir::new("web", "progress-reset");
         let municipality = config::municipality("291").expect("missing test municipality");
         let params = crate::utils::parse_args(&["--cache".to_string(), dir.display().to_string()]).unwrap();
@@ -809,7 +805,22 @@ mod tests {
 
         let progress = load_or_create_progress(&params, municipality).unwrap();
         assert_eq!(progress.round_id, "2000");
-        assert!(!progress.cells[cell].buildings);
+        assert!(progress.cells[cell].buildings);
+    }
+
+    #[test]
+    fn reset_progress_removes_saved_progress() {
+        let dir = TempDir::new("web", "reset-progress");
+        let municipality = config::municipality("291").expect("missing test municipality");
+        let params = crate::utils::parse_args(&["--cache".to_string(), dir.display().to_string()]).unwrap();
+        let path = progress::path(params.cache_dir(), municipality);
+        let progress = ReviewProgress::new(&["00_00".to_string()]);
+
+        progress::save(&path, &progress).unwrap();
+        assert!(path.exists());
+
+        reset_progress(&params, municipality);
+        assert!(!path.exists());
     }
 
     #[test]

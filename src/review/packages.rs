@@ -11,6 +11,8 @@ use super::ReviewError;
 use super::diff::AddressFix;
 use super::osm_io::{self, ExistingWay};
 
+const GRID_ORIGIN_LON: f64 = 17.0;
+const GRID_ORIGIN_LAT: f64 = 57.0;
 const CELL_LON: f64 = 0.04;
 const CELL_LAT: f64 = 0.02;
 const CELL_MARGIN: f64 = 0.005;
@@ -44,8 +46,9 @@ pub fn cells_of(official: &Value, bbox: &BBox) -> Vec<Cell> {
             continue;
         }
 
-        let col = ((lon - bbox.min_lon) / CELL_LON) as usize;
-        let row = ((lat - bbox.min_lat) / CELL_LAT) as usize;
+        let Some((row, col)) = cell_indices(lon, lat) else {
+            continue;
+        };
 
         used.insert((row, col));
     }
@@ -54,14 +57,14 @@ pub fn cells_of(official: &Value, bbox: &BBox) -> Vec<Cell> {
         .into_iter()
         .map(|(row, col)| {
             let base_bbox = BBox {
-                min_lon: bbox.min_lon + col as f64 * CELL_LON,
-                min_lat: bbox.min_lat + row as f64 * CELL_LAT,
-                max_lon: bbox.min_lon + (col + 1) as f64 * CELL_LON,
-                max_lat: bbox.min_lat + (row + 1) as f64 * CELL_LAT,
+                min_lon: GRID_ORIGIN_LON + col as f64 * CELL_LON,
+                min_lat: GRID_ORIGIN_LAT + row as f64 * CELL_LAT,
+                max_lon: GRID_ORIGIN_LON + (col + 1) as f64 * CELL_LON,
+                max_lat: GRID_ORIGIN_LAT + (row + 1) as f64 * CELL_LAT,
             };
 
             Cell {
-                number: format!("{row:02}_{col:02}"),
+                number: cell_number(row, col),
                 base_bbox,
                 cut_bbox: BBox {
                     min_lon: base_bbox.min_lon - CELL_MARGIN,
@@ -187,6 +190,21 @@ pub fn feature_center(feature: &Value) -> Option<(f64, f64)> {
     }
 
     Some((lon / count, lat / count))
+}
+
+fn cell_indices(lon: f64, lat: f64) -> Option<(usize, usize)> {
+    if lon < GRID_ORIGIN_LON || lat < GRID_ORIGIN_LAT {
+        return None;
+    }
+
+    let col = ((lon - GRID_ORIGIN_LON) / CELL_LON) as usize;
+    let row = ((lat - GRID_ORIGIN_LAT) / CELL_LAT) as usize;
+
+    Some((row, col))
+}
+
+pub(crate) fn cell_number(row: usize, col: usize) -> String {
+    format!("{row:03}_{col:03}")
 }
 
 pub fn inside_bbox(point: (f64, f64), bbox: &BBox) -> bool {

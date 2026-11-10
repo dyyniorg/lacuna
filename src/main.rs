@@ -58,6 +58,10 @@ fn main() {
                         .unwrap_or_else(|error| fatal_exit("Statistics failed", error));
                 }
 
+                if params.overwrite() {
+                    web::reset_progress(&params, municipality);
+                }
+
                 print_review_output(&output);
                 return;
             }
