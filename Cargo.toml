@@ -2,7 +2,7 @@
 name = "lacuna"
 description = "Semi-automated building geometry and address tag import utility for Finnish OSM"
 repository = "https://github.com/dyyniorg/lacuna"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 
 [dependencies]
@@ -15,3 +15,8 @@ rstar = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tiny_http = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = "symbols"
