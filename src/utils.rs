@@ -14,9 +14,35 @@ pub const DEFAULT_LISTEN: &str = "127.0.0.1:3000";
 
 const ALL_INTERFACES_LISTEN: &str = "0.0.0.0:3000";
 
+pub const HELP: &str = "\
+Usage: lacuna [OPTIONS]
+
+Run without options to start the web UI.
+
+Modes:
+  --fetch                 Fetch and cache data, print input counts
+  --review                Run the full review pipeline
+  --adjust <cell>         Recompute addresses for one cell
+
+Options:
+  -h, --help              Show this help
+  --cache <dir>           Cache and review root [default: data]
+  --cache-max-age <days>  Maximum cache age [default: 7]
+  --municipality <code>   Municipality code for CLI modes
+  --overwrite             Replace existing review output
+  --listen-all            Listen on 0.0.0.0:3000
+  --osm-user <name>       OSM username for statistics
+  --stats-url <url>       Statistics backend URL
+  --stats-token <token>   Statistics backend token
+
+Statistics options must be used together.
+";
+
 /// Runtime configuration for the application.
 #[derive(Clone, Debug)]
 pub struct Parameters {
+    /// Print CLI help and exit.
+    help: bool,
     /// Root directory for cached input files. Defaults to `data`.
     cache_dir: PathBuf,
     /// Maximum age of a cached resource before it is fetched again. Defaults
@@ -46,6 +72,7 @@ pub struct Parameters {
 impl Default for Parameters {
     fn default() -> Self {
         Self {
+            help: false,
             cache_dir: PathBuf::from(DEFAULT_CACHE_DIR),
             cache_max_age: Duration::from_secs(DEFAULT_CACHE_MAX_AGE_DAYS * 86_400),
             listen_all: false,
@@ -62,6 +89,10 @@ impl Default for Parameters {
 }
 
 impl Parameters {
+    pub fn help(&self) -> bool {
+        self.help
+    }
+
     pub fn cache_dir(&self) -> &Path {
         &self.cache_dir
     }
@@ -130,6 +161,7 @@ pub fn parse_args(raw_args: &[String]) -> Result<Parameters, InvalidArgError> {
 
     while let Some(arg) = args.next() {
         match arg.to_lowercase().as_str() {
+            "-h" | "--help" => params.help = true,
             "--cache" => {
                 let value = args
                     .next()
@@ -183,6 +215,10 @@ pub fn parse_args(raw_args: &[String]) -> Result<Parameters, InvalidArgError> {
                 return Err(InvalidArgError::new(format!("Unknown argument: {other}")));
             }
         }
+    }
+
+    if params.help {
+        return Ok(params);
     }
 
     let modes = [params.fetch, params.review, params.adjust.is_some()]
@@ -250,6 +286,13 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn help_flag_is_parsed() {
+        assert!(parse_args(&args(&["-h"])).unwrap().help());
+        assert!(parse_args(&args(&["--help"])).unwrap().help());
+        assert!(HELP.contains("--stats-url"));
     }
 
     #[test]

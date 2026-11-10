@@ -18,6 +18,11 @@ fn main() {
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let params = utils::parse_args(&raw_args).unwrap_or_else(|error| fatal_exit("Invalid arguments", error));
 
+    if params.help() {
+        print!("{}", utils::HELP);
+        return;
+    }
+
     println!("** {} v{}\n", PROG_NAME, VERSION);
 
     if let Some(cell) = params.adjust() {
