@@ -23,6 +23,10 @@ use progress::ReviewProgress;
 const INDEX_HTML: &str = include_str!("index.html");
 const INDEX_JS: &str = include_str!("index.js");
 
+fn index_html() -> String {
+    INDEX_HTML.replace("{{VERSION}}", &format!("v{}", crate::VERSION))
+}
+
 /// Runs the local HTTP server.
 pub fn serve(params: Parameters) -> Result<(), String> {
     let server = Server::http(params.listen()).map_err(|error| error.to_string())?;
@@ -162,11 +166,11 @@ struct HttpResponse {
 }
 
 impl HttpResponse {
-    fn html(body: &'static str) -> Self {
+    fn html(body: impl Into<String>) -> Self {
         Self {
             status: 200,
             content_type: "text/html; charset=utf-8",
-            body: body.to_string(),
+            body: body.into(),
         }
     }
 
@@ -222,7 +226,7 @@ fn handle(mut request: Request, state: Arc<Mutex<AppState>>) -> Result<(), Strin
 
     let response = if is_get {
         match path {
-            "/" => HttpResponse::html(INDEX_HTML),
+            "/" => HttpResponse::html(index_html()),
             "/index.js" => HttpResponse::javascript(INDEX_JS),
             "/api/config" => config_response(&state),
             "/api/session" => session_response(&state, query),
@@ -748,6 +752,14 @@ mod tests {
         };
 
         fs::write(path, serde_json::to_string(&state).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn index_title_contains_version() {
+        let html = index_html();
+        let version = format!("v{}", crate::VERSION);
+        assert!(html.contains(&format!("<title>Lacuna ({version})</title>")));
+        assert!(html.contains(&format!("<h1>Lacuna ({version})</h1>")));
     }
 
     #[test]
