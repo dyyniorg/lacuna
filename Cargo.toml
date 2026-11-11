@@ -2,7 +2,7 @@
 name = "lacuna"
 description = "Semi-automated building geometry and address tag import utility for Finnish OSM"
 repository = "https://github.com/dyyniorg/lacuna"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]

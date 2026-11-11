@@ -758,7 +758,7 @@ dependencies = [
 
 [[package]]
 name = "lacuna"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "geo",
  "osmpbf",
