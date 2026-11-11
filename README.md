@@ -18,7 +18,7 @@ For a given municipality, the workflow is:
 2. Merge Ryhti building points with NLS building footprints. Footprints that do not match a current Ryhti point are discarded.
 3. Compare the merged building data with existing OSM buildings from the PBF extract by geometry, using an R-tree.
 4. Assign official addresses to existing OSM buildings and to missing building candidates from the comparison.
-5. Split the result into WGS 84 (EPSG:4326) grid cells of 0.04 by 0.02 degrees, approximately 2x2 km in southern Finland.
+5. Split the result into WGS84 (EPSG:4326) grid cells of 0.12 by 0.06 degrees (approximately 6.7 by 6.7 km in southern Finland).
 
 See [`docs/PIPELINE.md`](docs/PIPELINE.md) for a detailed description of the matching process.
 
