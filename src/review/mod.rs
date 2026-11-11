@@ -545,7 +545,7 @@ mod tests {
         let official = collection(vec![official("A", "B1", "P1", 25.001, 61.001)]);
         let cells = packages::cells_of(&official, &bbox);
         assert_eq!(cells.len(), 1);
-        assert_eq!(cells[0].number, "200_200");
+        assert_eq!(cells[0].number, "066_066");
         assert!(packages::inside_bbox((25.001, 61.001), &cells[0].base_bbox));
         assert!(!packages::inside_bbox(
             (cells[0].base_bbox.max_lon, 61.01),
@@ -588,17 +588,17 @@ mod tests {
             .expect("failed to write packages");
 
         assert_eq!(packages.len(), 1);
-        assert_eq!(packages[0].number, "200_200");
+        assert_eq!(packages[0].number, "066_066");
         assert_eq!(packages[0].buildings, 1);
         assert_eq!(packages[0].addresses, 1);
         assert_eq!(packages[0].missing_refs, vec!["A".to_string()]);
 
-        let cell_dir = review_dir.join("200_200");
+        let cell_dir = review_dir.join("066_066");
         for name in ["buildings.osm", "addresses.osm", "osm_bbox.txt"] {
             assert!(cell_dir.join(name).is_file(), "missing {name}");
         }
         let bbox_text = fs::read_to_string(cell_dir.join("osm_bbox.txt")).unwrap();
-        assert!(bbox_text.contains("bbox: 60.995000,24.995000,61.025000,25.045000"));
+        assert!(bbox_text.contains("bbox: 60.955000,24.915000,61.025000,25.045000"));
         assert!(bbox_text.contains("https://www.openstreetmap.org/#map=15/"));
         assert!(!bbox_text.contains("josm --download="));
 
@@ -692,10 +692,10 @@ mod tests {
                 .expect("failed to write packages");
 
         assert_eq!(packages.len(), 1);
-        assert_eq!(packages[0].number, "200_200");
+        assert_eq!(packages[0].number, "066_066");
         assert_eq!(packages[0].addresses, 1);
-        assert!(review_dir.join("200_200").join("addresses.osm").is_file());
-        assert!(!review_dir.join("200_201").exists());
+        assert!(review_dir.join("066_066").join("addresses.osm").is_file());
+        assert!(!review_dir.join("066_067").exists());
     }
 
     #[test]
@@ -821,16 +821,16 @@ mod tests {
         };
         super::state::save(&dir, &MUNICIPALITY, &state).unwrap();
 
-        let owner_dir = data_dir.join("review").join("201_200");
-        let other_dir = data_dir.join("review").join("201_201");
+        let owner_dir = data_dir.join("review").join("067_066");
+        let other_dir = data_dir.join("review").join("067_067");
         fs::create_dir_all(&owner_dir).unwrap();
         fs::create_dir_all(&other_dir).unwrap();
 
-        let owner = super::adjust(&MUNICIPALITY, &dir, "201_200").unwrap();
+        let owner = super::adjust(&MUNICIPALITY, &dir, "067_066").unwrap();
         assert_eq!(owner.address_fixes, 1);
         assert!(owner_dir.join("addresses.osm").is_file());
 
-        let other = super::adjust(&MUNICIPALITY, &dir, "201_201").unwrap();
+        let other = super::adjust(&MUNICIPALITY, &dir, "067_067").unwrap();
         assert_eq!(other.address_fixes, 0);
         assert!(!other_dir.join("addresses.osm").exists());
     }
@@ -972,8 +972,8 @@ mod tests {
             max_lat: 61.10,
         };
 
-        assert_eq!(packages::cells_of(&official, &narrow)[0].number, "200_200");
-        assert_eq!(packages::cells_of(&official, &wide)[0].number, "200_200");
+        assert_eq!(packages::cells_of(&official, &narrow)[0].number, "066_066");
+        assert_eq!(packages::cells_of(&official, &wide)[0].number, "066_066");
     }
 
     #[test]
@@ -991,7 +991,7 @@ mod tests {
 
         let cells = packages::cells_of(&official, &bbox);
         let numbers: Vec<&str> = cells.iter().map(|cell| cell.number.as_str()).collect();
-        assert_eq!(numbers, vec!["200_200", "201_201"]);
+        assert_eq!(numbers, vec!["066_066", "067_067"]);
         assert!(packages::inside_bbox((25.001, 61.001), &cells[0].base_bbox));
         assert!(packages::inside_bbox((25.050, 61.030), &cells[1].base_bbox));
         assert!(!packages::inside_bbox((25.001, 61.001), &cells[1].base_bbox));

@@ -13,8 +13,8 @@ use super::osm_io::{self, ExistingWay};
 
 const GRID_ORIGIN_LON: f64 = 17.0;
 const GRID_ORIGIN_LAT: f64 = 57.0;
-const CELL_LON: f64 = 0.04;
-const CELL_LAT: f64 = 0.02;
+const CELL_LON: f64 = 0.12;
+const CELL_LAT: f64 = 0.06;
 const CELL_MARGIN: f64 = 0.005;
 
 /// One populated grid cell.
