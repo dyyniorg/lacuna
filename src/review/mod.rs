@@ -1,6 +1,5 @@
-//! Review processing: comparison, grid packages, and address adjustment.
+//! Review processing: comparison and address packages.
 
-mod adjust;
 mod diff;
 mod osm_io;
 mod packages;
@@ -17,7 +16,6 @@ use crate::config::Municipality;
 use crate::ingest::{IngestData, IngestError};
 use crate::utils;
 
-pub use adjust::adjust;
 pub use diff::Counts;
 pub use packages::CellPackage;
 pub use state::{ReviewState, load as load_state};
@@ -29,9 +27,6 @@ pub enum ReviewError {
     Json(serde_json::Error),
     Ingest(String),
     ExistingOutput(Vec<PathBuf>),
-    MissingInput(PathBuf),
-    CellNotFound(String),
-    InvalidData(String),
 }
 
 impl fmt::Display for ReviewError {
@@ -43,11 +38,6 @@ impl fmt::Display for ReviewError {
             Self::ExistingOutput(paths) => {
                 write!(f, "Review output already exists: {} files", paths.len())
             }
-            Self::MissingInput(path) => {
-                write!(f, "Missing review input: {}", path.display())
-            }
-            Self::CellNotFound(cell) => write!(f, "Review cell not found: {cell}"),
-            Self::InvalidData(message) => write!(f, "Invalid data: {message}"),
         }
     }
 }
@@ -111,7 +101,7 @@ fn review_dirs(dir: &Path) -> Result<Vec<PathBuf>, ReviewError> {
 pub fn existing_outputs(municipality: &Municipality, cache_dir: &Path) -> Result<Vec<PathBuf>, ReviewError> {
     let dir = cache_dir.join(municipality.slug());
 
-    let mut paths: Vec<PathBuf> = ["review_state.json", "buildings.osm", "addresses.osm"]
+    let mut paths: Vec<PathBuf> = ["review_state.json", "addresses.osm"]
         .into_iter()
         .map(|name| dir.join(name))
         .filter(|path| path.exists())
@@ -169,14 +159,8 @@ pub fn run(
         return Err(ReviewError::ExistingOutput(existing));
     }
 
-    let (result, counts, address_fixes) = diff::compare(
-        &data.official,
-        &data.nls,
-        &data.osm,
-        &data.addresses,
-        &data.parcels,
-        &diff::Overrides::default(),
-    );
+    let (result, counts, address_fixes) =
+        diff::compare(&data.official, &data.nls, &data.osm, &data.addresses, &data.parcels);
 
     let out_dir = cache_dir.join(municipality.slug());
 
@@ -186,6 +170,11 @@ pub fn run(
         let review_dir = out_dir.join("review");
         if review_dir.exists() {
             fs::remove_dir_all(&review_dir)?;
+        }
+
+        let legacy_buildings = out_dir.join("buildings.osm");
+        if legacy_buildings.exists() {
+            fs::remove_file(&legacy_buildings)?;
         }
     }
 
@@ -218,41 +207,16 @@ pub fn run(
 
     osm_io::save_existing_osm(&out_dir.join("addresses.osm"), &address_ways)?;
 
-    let missing_features: Vec<Value> = utils::features(&result)
-        .iter()
-        .filter(|feature| feature["properties"]["match_state"] == "missing")
-        .cloned()
-        .collect();
-
-    let buildings_path = out_dir.join("buildings.osm");
-
-    if missing_features.is_empty() {
-        match fs::remove_file(&buildings_path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.into()),
-        }
-    } else {
-        osm_io::save_osm(&buildings_path, &missing_features)?;
-    }
-
     let cells = packages::write_packages(
         &out_dir.join("review"),
         &data.official,
-        &result,
         &address_missing_features,
         &data.bbox,
     )?;
 
     let round_id = utils::now_id();
-    let missing_by_cell = cells
-        .iter()
-        .filter(|cell| !cell.missing_refs.is_empty())
-        .map(|cell| (cell.number.clone(), cell.missing_refs.clone()))
-        .collect();
     let review_state = ReviewState {
         round_id: round_id.clone(),
-        missing_by_cell,
     };
 
     state::save(cache_dir, municipality, &review_state)?;
@@ -267,7 +231,7 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, HashSet};
+    use std::collections::HashSet;
     use std::fs;
 
     use serde_json::{Value, json};
@@ -275,7 +239,7 @@ mod tests {
     use crate::config::Municipality;
     use crate::utils::test_support::TempDir;
 
-    use super::diff::{self, Overrides};
+    use super::diff;
     use super::packages;
     use crate::ingest;
 
@@ -396,9 +360,8 @@ mod tests {
         osm: &Value,
         addresses: &Value,
         parcels: &Value,
-        overrides: &Overrides,
     ) -> (Value, diff::Counts, Vec<diff::AddressFix>) {
-        diff::compare(official, nls, osm, addresses, parcels, overrides)
+        diff::compare(official, nls, osm, addresses, parcels)
     }
 
     #[test]
@@ -431,7 +394,7 @@ mod tests {
             address("B3", "3", "Testikatu", 25.020, 61.020),
         ]);
 
-        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels, &Overrides::default());
+        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels);
 
         assert_eq!(counts.matched, 1);
         assert_eq!(counts.changed, 1);
@@ -451,18 +414,11 @@ mod tests {
 
         let c = result_for(&result, "C");
         assert_eq!(c["properties"]["match_state"].as_str(), Some("missing"));
-        assert_eq!(
-            c["properties"]["suggested_tags"]["addr:housenumber"].as_str(),
-            Some("3")
-        );
-        assert_eq!(
-            c["properties"]["suggested_tags"]["addr:street"].as_str(),
-            Some("Testikatu")
-        );
+        assert_eq!(c["properties"]["address_state"].as_str(), Some("missing"));
     }
 
     #[test]
-    fn overrides_control_address_placement() {
+    fn addresses_only_attach_to_existing_osm_buildings() {
         let official = collection(vec![official("M", "BM", "P2", 25.020, 61.020)]);
 
         let nls = collection(vec![nls("M1", 25.019, 61.019, 25.021, 61.021)]);
@@ -473,41 +429,12 @@ mod tests {
 
         let addresses = collection(vec![address("BM", "2", "Testikatu", 25.020, 61.020)]);
 
-        let (result, _, fixes) = compare(&official, &nls, &osm, &addresses, &parcels, &Overrides::default());
-        assert!(fixes.is_empty());
-        assert_eq!(
-            result_for(&result, "M")["properties"]["suggested_tags"]["addr:housenumber"].as_str(),
-            Some("2")
-        );
-
-        let existing_only = Overrides {
-            deleted: HashSet::new(),
-            placed: HashSet::new(),
-            existing_only: true,
-        };
-        let (_, _, fixes) = compare(&official, &nls, &osm, &addresses, &parcels, &existing_only);
+        let (result, _, fixes) = compare(&official, &nls, &osm, &addresses, &parcels);
         assert_eq!(fixes.len(), 1);
         assert_eq!(fixes[0].way_id, "way/200");
-
-        let deleted = Overrides {
-            deleted: HashSet::from(["M".to_string()]),
-            placed: HashSet::new(),
-            existing_only: true,
-        };
-        let (_, _, fixes) = compare(&official, &nls, &osm, &addresses, &parcels, &deleted);
-        assert_eq!(fixes.len(), 1);
-        assert_eq!(fixes[0].way_id, "way/200");
-
-        let placed = Overrides {
-            deleted: HashSet::new(),
-            placed: HashSet::from([diff::address_key("2", "Testikatu")]),
-            existing_only: true,
-        };
-        let (result, _, fixes) = compare(&official, &nls, &osm, &addresses, &parcels, &placed);
-        assert!(fixes.is_empty());
         assert_eq!(
             result_for(&result, "M")["properties"]["address_state"].as_str(),
-            Some("matched")
+            Some("missing")
         );
     }
 
@@ -523,7 +450,6 @@ mod tests {
             &collection(Vec::new()),
             &addresses,
             &collection(Vec::new()),
-            &Overrides::default(),
         );
 
         assert_eq!(counts.official_current, 1);
@@ -552,19 +478,6 @@ mod tests {
             &cells[0].base_bbox
         ));
 
-        let result = collection(vec![feature(
-            square(25.0005, 61.0005, 25.0015, 61.0015),
-            json!({
-                "official_point": [25.001, 61.001],
-                "match_state": "missing",
-                "permanent_building_identifier": "A",
-                "suggested_tags": {
-                    "building": "yes",
-                    "lacuna:ref": "A",
-                    "lacuna:review": "yes",
-                },
-            }),
-        )]);
         let address_missing = vec![feature(
             square(25.04, 61.001, 25.06, 61.002),
             json!({
@@ -584,17 +497,15 @@ mod tests {
         })
         .collect::<Vec<_>>();
 
-        let packages = packages::write_packages(&review_dir, &official, &result, &address_missing, &bbox)
+        let packages = packages::write_packages(&review_dir, &official, &address_missing, &bbox)
             .expect("failed to write packages");
 
         assert_eq!(packages.len(), 1);
         assert_eq!(packages[0].number, "066_066");
-        assert_eq!(packages[0].buildings, 1);
         assert_eq!(packages[0].addresses, 1);
-        assert_eq!(packages[0].missing_refs, vec!["A".to_string()]);
 
         let cell_dir = review_dir.join("066_066");
-        for name in ["buildings.osm", "addresses.osm", "osm_bbox.txt"] {
+        for name in ["addresses.osm", "osm_bbox.txt"] {
             assert!(cell_dir.join(name).is_file(), "missing {name}");
         }
         let bbox_text = fs::read_to_string(cell_dir.join("osm_bbox.txt")).unwrap();
@@ -602,18 +513,14 @@ mod tests {
         assert!(bbox_text.contains("https://www.openstreetmap.org/?bbox=24.915000,60.955000,25.045000,61.025000"));
         assert!(!bbox_text.contains("josm --download="));
 
-        let buildings = fs::read_to_string(cell_dir.join("buildings.osm")).unwrap();
-        assert!(buildings.contains("lacuna:ref"));
-        assert!(buildings.contains("lacuna:review"));
-
         let addresses = fs::read_to_string(cell_dir.join("addresses.osm")).unwrap();
         assert!(addresses.contains("way id=\"100\""));
         assert!(addresses.contains("lacuna:review"));
     }
 
     #[test]
-    fn packages_skip_empty_buildings_file() {
-        let dir = TempDir::new("review", "skip-buildings");
+    fn packages_skip_cells_without_addresses() {
+        let dir = TempDir::new("review", "skip-addresses");
         let review_dir = dir.join("review");
         let bbox = ingest::BBox {
             min_lon: 24.98,
@@ -622,36 +529,11 @@ mod tests {
             max_lat: 61.10,
         };
         let official = collection(vec![official("A", "B1", "P1", 25.001, 61.001)]);
-        let address_missing = vec![feature(
-            square(25.04, 61.001, 25.06, 61.002),
-            json!({
-                "official_address": {
-                    "housenumber": "1",
-                    "street": "Testikatu",
-                    "postcode": "17800",
-                    "city": "Kuhmoinen",
-                },
-                "owner_point": [25.001, 61.001],
-            }),
-        )]
-        .into_iter()
-        .map(|mut feature| {
-            feature["id"] = json!("way/100");
-            feature
-        })
-        .collect::<Vec<_>>();
 
-        let packages =
-            packages::write_packages(&review_dir, &official, &collection(Vec::new()), &address_missing, &bbox)
-                .expect("failed to write packages");
+        let packages = packages::write_packages(&review_dir, &official, &[], &bbox).expect("failed to write packages");
 
-        assert_eq!(packages.len(), 1);
-        assert_eq!(packages[0].buildings, 0);
-        assert_eq!(packages[0].addresses, 1);
-
-        let cell_dir = review_dir.join(&packages[0].number);
-        assert!(!cell_dir.join("buildings.osm").exists());
-        assert!(cell_dir.join("addresses.osm").is_file());
+        assert!(packages.is_empty());
+        assert!(!review_dir.join("066_066").exists());
     }
 
     #[test]
@@ -687,9 +569,8 @@ mod tests {
         })
         .collect::<Vec<_>>();
 
-        let packages =
-            packages::write_packages(&review_dir, &official, &collection(Vec::new()), &address_missing, &bbox)
-                .expect("failed to write packages");
+        let packages = packages::write_packages(&review_dir, &official, &address_missing, &bbox)
+            .expect("failed to write packages");
 
         assert_eq!(packages.len(), 1);
         assert_eq!(packages[0].number, "066_066");
@@ -735,10 +616,10 @@ mod tests {
         let bbox = ingest::bbox_of_points(&official).unwrap();
         let data = ingest::IngestData {
             official,
-            addresses: collection(Vec::new()),
+            addresses: collection(vec![address("B1", "1", "Testikatu", 25.001, 61.001)]),
             nls,
-            parcels: collection(Vec::new()),
-            osm: collection(Vec::new()),
+            parcels: collection(vec![parcel("P1", 24.999, 60.999, 25.012, 61.012)]),
+            osm: collection(vec![osm_way("way/100", 25.0004, 61.0004, 25.0016, 61.0016, None, None)]),
             bbox,
         };
 
@@ -746,26 +627,22 @@ mod tests {
 
         assert!(!output.round_id.is_empty());
         assert_eq!(output.cells.len(), 1);
+        assert_eq!(output.cells[0].addresses, 1);
+        assert_eq!(output.address_fixes, 1);
 
-        for name in ["buildings.osm", "review_state.json"] {
+        for name in ["addresses.osm", "review_state.json"] {
             assert!(data_dir.join(name).is_file(), "missing {name}");
         }
-        assert!(!data_dir.join("addresses.osm").exists());
 
         let cell_dir = data_dir.join("review").join(&output.cells[0].number);
-        for name in ["buildings.osm", "osm_bbox.txt"] {
+        for name in ["addresses.osm", "osm_bbox.txt"] {
             assert!(cell_dir.join(name).is_file(), "missing {name}");
         }
-        assert!(!cell_dir.join("addresses.osm").exists());
 
         let state = super::load_state(&dir, &MUNICIPALITY)
             .unwrap()
             .expect("missing review state");
         assert_eq!(state.round_id, output.round_id);
-        assert_eq!(
-            state.missing_by_cell.get(&output.cells[0].number),
-            Some(&vec!["A".to_string()])
-        );
 
         let existing = super::existing_outputs(&MUNICIPALITY, &dir).unwrap();
         assert!(
@@ -774,186 +651,9 @@ mod tests {
                 .any(|path| path.file_name().and_then(|name| name.to_str()) == Some("review_state.json"))
         );
 
-        for (name, value) in [
-            ("ryhti_buildings.json", &data.official),
-            ("ryhti_addresses.json", &data.addresses),
-            ("nls_footprints.json", &data.nls),
-            ("osm_buildings.json", &data.osm),
-            ("parcels.json", &data.parcels),
-        ] {
-            fs::write(data_dir.join(name), serde_json::to_string(value).unwrap()).unwrap();
-        }
-
-        let adjust = super::adjust(&MUNICIPALITY, &dir, &output.cells[0].number).unwrap();
-        assert_eq!(adjust.kept, 1);
-        assert_eq!(adjust.removed, 0);
-        assert_eq!(adjust.address_fixes, 0);
-    }
-
-    #[test]
-    fn adjust_assigns_address_only_to_owner_cell() {
-        let dir = TempDir::new("review", "adjust-owner-cell");
-        let data_dir = dir.join(MUNICIPALITY.slug());
-        fs::create_dir_all(&data_dir).unwrap();
-
-        let official = collection(vec![
-            official("M", "BM", "P2", 25.020, 61.020),
-            official("N", "BN", "P2", 25.061, 61.020),
-        ]);
-        let nls = collection(vec![nls("M1", 25.019, 61.019, 25.021, 61.021)]);
-        let osm = collection(vec![osm_way("way/200", 25.065, 61.020, 25.066, 61.021, None, None)]);
-        let parcels = collection(vec![parcel("P2", 25.017, 61.017, 25.075, 61.023)]);
-        let addresses = collection(vec![address("BM", "2", "Testikatu", 25.020, 61.020)]);
-
-        for (name, value) in [
-            ("ryhti_buildings.json", &official),
-            ("ryhti_addresses.json", &addresses),
-            ("nls_footprints.json", &nls),
-            ("osm_buildings.json", &osm),
-            ("parcels.json", &parcels),
-        ] {
-            fs::write(data_dir.join(name), serde_json::to_string(value).unwrap()).unwrap();
-        }
-
-        let state = super::ReviewState {
-            round_id: "test-round".to_string(),
-            missing_by_cell: BTreeMap::new(),
-        };
-        super::state::save(&dir, &MUNICIPALITY, &state).unwrap();
-
-        let owner_dir = data_dir.join("review").join("067_066");
-        let other_dir = data_dir.join("review").join("067_067");
-        fs::create_dir_all(&owner_dir).unwrap();
-        fs::create_dir_all(&other_dir).unwrap();
-
-        let owner = super::adjust(&MUNICIPALITY, &dir, "067_066").unwrap();
-        assert_eq!(owner.address_fixes, 1);
-        assert!(owner_dir.join("addresses.osm").is_file());
-
-        let other = super::adjust(&MUNICIPALITY, &dir, "067_067").unwrap();
-        assert_eq!(other.address_fixes, 0);
-        assert!(!other_dir.join("addresses.osm").exists());
-    }
-
-    #[test]
-    fn adjust_moves_address_to_existing_way_and_strips_ref() {
-        let dir = TempDir::new("review", "adjust");
-        let data_dir = dir.join(MUNICIPALITY.slug());
-        fs::create_dir_all(&data_dir).unwrap();
-
-        let official = collection(vec![official("M", "BM", "P2", 25.020, 61.020)]);
-
-        let nls = collection(vec![nls("M1", 25.019, 61.019, 25.021, 61.021)]);
-
-        let osm = collection(vec![osm_way("way/200", 25.022, 61.020, 25.023, 61.021, None, None)]);
-
-        let parcels = collection(vec![parcel("P2", 25.017, 61.017, 25.024, 61.023)]);
-
-        let addresses = collection(vec![address("BM", "2", "Testikatu", 25.020, 61.020)]);
-
-        for (name, value) in [
-            ("ryhti_buildings.json", &official),
-            ("ryhti_addresses.json", &addresses),
-            ("nls_footprints.json", &nls),
-            ("osm_buildings.json", &osm),
-            ("parcels.json", &parcels),
-        ] {
-            fs::write(data_dir.join(name), serde_json::to_string(value).unwrap()).unwrap();
-        }
-
-        let bbox = ingest::bbox_of_points(&official).unwrap();
-        let cells = packages::cells_of(&official, &bbox);
-        let cell = cells[0].number.clone();
-        let state = super::ReviewState {
-            round_id: "test-round".to_string(),
-            missing_by_cell: BTreeMap::from([(cell.clone(), vec!["M".to_string(), "K".to_string()])]),
-        };
-        super::state::save(&dir, &MUNICIPALITY, &state).unwrap();
-
-        let cell_dir = data_dir.join("review").join(&cell);
-        fs::create_dir_all(&cell_dir).unwrap();
-        let buildings_path = cell_dir.join("buildings.osm");
-        let kept_osm = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
-                        <osm version=\"0.6\" generator=\"JOSM\">\n\
-                        <way id=\"-2\">\n\
-                        <tag k=\"building\" v=\"yes\"/>\n\
-                        <tag k=\"lacuna:ref\" v=\"K\"/>\n\
-                        </way>\n\
-                        </osm>\n";
-        fs::write(&buildings_path, kept_osm).unwrap();
-
-        let output = super::adjust(&MUNICIPALITY, &dir, &cell).unwrap();
-        assert_eq!(output.kept, 1);
-        assert_eq!(output.removed, 1);
-        assert_eq!(output.placed, 0);
-        assert_eq!(output.address_fixes, 1);
-
-        let addresses_osm = fs::read_to_string(cell_dir.join("addresses.osm")).unwrap();
-        assert!(addresses_osm.contains("way id=\"200\""));
-        assert!(addresses_osm.contains("addr:housenumber\" v=\"2\""));
-
-        let buildings_osm = fs::read_to_string(&buildings_path).unwrap();
-        assert!(buildings_osm.contains("<tag k=\"building\" v=\"yes\"/>"));
-        assert!(!buildings_osm.contains("lacuna:ref"));
-    }
-
-    #[test]
-    fn adjust_allows_missing_buildings_file_for_skipped_cell() {
-        let dir = TempDir::new("review", "adjust-skipped");
-        let data_dir = dir.join(MUNICIPALITY.slug());
-        fs::create_dir_all(&data_dir).unwrap();
-
-        let official = collection(vec![official("A", "B1", "P1", 25.001, 61.001)]);
-        let addresses = collection(vec![address("B1", "1", "Testikatu", 25.001, 61.001)]);
-        let nls = collection(vec![nls("A1", 25.0005, 61.0005, 25.0015, 61.0015)]);
-        let osm = collection(vec![osm_way("way/100", 25.0005, 61.0005, 25.0015, 61.0015, None, None)]);
-        let parcels = collection(vec![parcel("P1", 24.999, 60.999, 25.012, 61.012)]);
-
-        for (name, value) in [
-            ("ryhti_buildings.json", &official),
-            ("ryhti_addresses.json", &addresses),
-            ("nls_footprints.json", &nls),
-            ("osm_buildings.json", &osm),
-            ("parcels.json", &parcels),
-        ] {
-            fs::write(data_dir.join(name), serde_json::to_string(value).unwrap()).unwrap();
-        }
-
-        let bbox = ingest::bbox_of_points(&official).unwrap();
-        let cell = packages::cells_of(&official, &bbox)[0].number.clone();
-        let state = super::ReviewState {
-            round_id: "test-round".to_string(),
-            missing_by_cell: BTreeMap::new(),
-        };
-        super::state::save(&dir, &MUNICIPALITY, &state).unwrap();
-
-        let cell_dir = data_dir.join("review").join(&cell);
-        fs::create_dir_all(&cell_dir).unwrap();
-
-        let output = super::adjust(&MUNICIPALITY, &dir, &cell).unwrap();
-
-        assert_eq!(output.kept, 0);
-        assert_eq!(output.removed, 0);
-        assert!(cell_dir.join("addresses.osm").is_file());
-    }
-
-    #[test]
-    fn adjust_rejects_missing_buildings_file_when_expected() {
-        let dir = TempDir::new("review", "adjust-missing");
-        let data_dir = dir.join(MUNICIPALITY.slug());
-        let cell = "00_00";
-        let cell_dir = data_dir.join("review").join(cell);
-        fs::create_dir_all(&cell_dir).unwrap();
-
-        let state = super::ReviewState {
-            round_id: "test-round".to_string(),
-            missing_by_cell: BTreeMap::from([(cell.to_string(), vec!["A".to_string()])]),
-        };
-        super::state::save(&dir, &MUNICIPALITY, &state).unwrap();
-
-        let result = super::adjust(&MUNICIPALITY, &dir, cell);
-
-        assert!(matches!(result, Err(super::ReviewError::MissingInput(_))));
+        let addresses = fs::read_to_string(data_dir.join("addresses.osm")).unwrap();
+        assert!(addresses.contains("way id=\"100\""));
+        assert!(addresses.contains("addr:housenumber\" v=\"1\""));
     }
 
     #[test]
@@ -1012,7 +712,6 @@ mod tests {
             &collection(Vec::new()),
             &collection(Vec::new()),
             &collection(Vec::new()),
-            &Overrides::default(),
         );
 
         assert_eq!(counts.official_total, 2);
@@ -1037,7 +736,7 @@ mod tests {
             address("B1", "2", "Testikatu", 25.001, 61.001),
         ]);
 
-        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels, &Overrides::default());
+        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels);
 
         assert_eq!(counts.address_multiple, 1);
         assert!(fixes.is_empty());
@@ -1071,7 +770,7 @@ mod tests {
             address("B2", "1", "Testikatu", 25.010, 61.010),
         ]);
 
-        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels, &Overrides::default());
+        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels);
 
         assert_eq!(fixes.len(), 1);
         assert_eq!(counts.address_duplicate, 1);
@@ -1088,14 +787,7 @@ mod tests {
 
         let osm = collection(vec![osm_way("way/100", 25.0012, 61.0005, 25.0022, 61.0015, None, None)]);
 
-        let (result, counts, fixes) = compare(
-            &official,
-            &nls,
-            &osm,
-            &collection(Vec::new()),
-            &collection(Vec::new()),
-            &Overrides::default(),
-        );
+        let (result, counts, fixes) = compare(&official, &nls, &osm, &collection(Vec::new()), &collection(Vec::new()));
 
         assert_eq!(counts.join_inside, 0);
         assert_eq!(counts.join_near, 1);
@@ -1122,14 +814,7 @@ mod tests {
 
         let osm = collection(vec![osm_way("way/100", 25.0005, 61.0005, 25.002, 61.002, None, None)]);
 
-        let (result, counts, fixes) = compare(
-            &official,
-            &nls,
-            &osm,
-            &collection(Vec::new()),
-            &collection(Vec::new()),
-            &Overrides::default(),
-        );
+        let (result, counts, fixes) = compare(&official, &nls, &osm, &collection(Vec::new()), &collection(Vec::new()));
 
         assert_eq!(counts.join_inside, 1);
         assert_eq!(counts.without_footprint, 1);
@@ -1165,7 +850,7 @@ mod tests {
 
         let addresses = collection(vec![address("B1", "1", "Testikatu", 25.001, 61.001)]);
 
-        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels, &Overrides::default());
+        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels);
 
         assert_eq!(counts.address_matched, 1);
         assert!(fixes.is_empty());
@@ -1194,7 +879,7 @@ mod tests {
 
         let addresses = collection(vec![address("B1", "1", "Testikatu", 25.001, 61.001)]);
 
-        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels, &Overrides::default());
+        let (result, counts, fixes) = compare(&official, &nls, &osm, &addresses, &parcels);
 
         assert_eq!(counts.address_changed, 1);
         assert!(fixes.is_empty());

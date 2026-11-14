@@ -1,6 +1,5 @@
 //! Minimal review state kept between cells.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,11 +10,10 @@ use crate::utils;
 
 use super::ReviewError;
 
-/// Missing building refs and round identity for one review run.
+/// Round identity for one review run.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ReviewState {
     pub round_id: String,
-    pub missing_by_cell: BTreeMap<String, Vec<String>>,
 }
 
 pub fn path(cache_dir: &Path, municipality: &Municipality) -> PathBuf {

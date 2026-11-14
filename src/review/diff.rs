@@ -1,10 +1,10 @@
 //! Building comparison and address assignment.
 //!
 //! Joins Ryhti points to NLS footprints, compares the resulting official
-//! polygons against OSM buildings, and assigns official addresses to OSM
-//! buildings or new building candidates.
+//! polygons against OSM buildings, and assigns official addresses to existing
+//! OSM buildings.
 //!
-//! Point-only registry buildings are not part of the review output.
+//! Point-only registry buildings are ignored for address matching.
 
 use std::collections::{HashMap, HashSet};
 
@@ -17,10 +17,8 @@ use crate::utils;
 
 mod address;
 
-pub use address::{AddressFix, address_key};
-use address::{
-    AddressInfo, AddressState, Cand, CandKind, assign_addresses, official_housenumber, set_address_state, title_case,
-};
+pub use address::AddressFix;
+use address::{AddressInfo, AddressState, Cand, assign_addresses, official_housenumber, set_address_state, title_case};
 
 // Usage status codes that mean the building no longer exists.
 const DEMOLISHED_CODES: [&str; 3] = ["06", "07", "08"];
@@ -84,42 +82,19 @@ impl RTreeObject for ParcelPoly {
     }
 }
 
-// An OSM building reduced to what the address comparison needs.
-#[derive(Clone)]
-struct AddrCandidate {
-    way_id: String,
-    housenumber: Option<String>,
-    street: Option<String>,
-    area: f64,
-}
-
-impl AddrCandidate {
-    fn to_cand(&self) -> Cand {
-        Cand {
-            kind: CandKind::Osm {
-                way_id: self.way_id.clone(),
-                street: self.street.clone(),
-            },
-            area: self.area,
-            key: self.way_id.clone(),
-            housenumber: self.housenumber.clone(),
-        }
-    }
-}
-
 // Reduces an OSM feature to an address candidate.
-fn osm_candidate(feature: &Value, area: f64) -> AddrCandidate {
+fn osm_candidate(feature: &Value, area: f64) -> Cand {
     let tags = &feature["properties"];
 
-    AddrCandidate {
+    Cand {
         way_id: feature
             .get("id")
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        housenumber: text(tags, "addr:housenumber"),
         street: text(tags, "addr:street"),
         area,
+        housenumber: text(tags, "addr:housenumber"),
     }
 }
 
@@ -389,9 +364,9 @@ fn build_parcel_polygons(parcels: &Value) -> Vec<ParcelPoly> {
 fn build_parcel_candidates(
     osm_polygons: &[OsmPolygon],
     parcel_tree: &RTree<ParcelPoly>,
-) -> (HashMap<String, Vec<AddrCandidate>>, HashMap<String, AddrCandidate>) {
-    let mut parcel_candidates: HashMap<String, Vec<AddrCandidate>> = HashMap::new();
-    let mut osm_candidates_by_id: HashMap<String, AddrCandidate> = HashMap::new();
+) -> (HashMap<String, Vec<Cand>>, HashMap<String, Cand>) {
+    let mut parcel_candidates: HashMap<String, Vec<Cand>> = HashMap::new();
+    let mut osm_candidates_by_id: HashMap<String, Cand> = HashMap::new();
 
     for osm_polygon in osm_polygons {
         let center = Point::new(
@@ -543,17 +518,6 @@ fn join_footprints(points: &[(f64, f64)], footprints: &[NlsFootprint]) -> Vec<Op
     joined
 }
 
-// Review-driven changes passed into the comparison.
-#[derive(Default)]
-pub struct Overrides {
-    // Official IDs that must not be used as new address candidates.
-    pub deleted: HashSet<String>,
-    // Addresses already placed on kept buildings, as address keys.
-    pub placed: HashSet<String>,
-    // When set, addresses only attach to existing OSM buildings.
-    pub existing_only: bool,
-}
-
 // Returns the result feature collection, the counts, and the OSM
 // buildings that exist but carry no address.
 pub fn compare(
@@ -562,7 +526,6 @@ pub fn compare(
     osm: &Value,
     addresses: &Value,
     parcels: &Value,
-    overrides: &Overrides,
 ) -> (Value, Counts, Vec<AddressFix>) {
     // official buildings that still exist
     let mut current: Vec<Value> = Vec::new();
@@ -614,16 +577,11 @@ pub fn compare(
     let mut matched = 0usize;
     let mut changed = 0usize;
     let mut missing = 0usize;
-    let mut building_states: Vec<String> = Vec::new();
-    let mut footprint_areas: Vec<Option<f64>> = Vec::new();
 
     let joined = join_footprints(&points, &footprints);
 
-    for (index, (feature, (lon, lat))) in current.iter().zip(points.iter()).enumerate() {
-        let joined_here = joined[index];
-
+    for ((feature, (lon, lat)), joined_here) in current.iter().zip(points.iter()).zip(joined.iter().copied()) {
         let footprint = joined_here.map(|(footprint, _, _)| &footprints[footprint]);
-        let footprint_area = footprint.map(|footprint| footprint.polygon.unsigned_area());
 
         let join_accuracy = match joined_here {
             Some((_, true, _)) => "inside",
@@ -703,24 +661,6 @@ pub fn compare(
             properties.insert("osm_way".to_string(), json!(way));
         }
 
-        // tags ready to paste into JOSM. address tags are added later by
-        // the per-parcel assignment for the buildings that win an address
-        let mut suggested = serde_json::Map::new();
-        suggested.insert("building".to_string(), json!("yes"));
-        suggested.insert(
-            "source".to_string(),
-            json!("MML Maastotietokanta; Ryhti (Syke); CC BY 4.0"),
-        );
-
-        if let Some(permanent_id) = permanent_ids[index].as_ref() {
-            suggested.insert("lacuna:ref".to_string(), json!(permanent_id));
-        }
-
-        suggested.insert("lacuna:review".to_string(), json!("yes"));
-        properties.insert("suggested_tags".to_string(), json!(suggested));
-
-        building_states.push(state.clone());
-        footprint_areas.push(footprint_area);
         result_features.push(result);
     }
 
@@ -794,7 +734,7 @@ pub fn compare(
             }
 
             if let Some(candidate) = osm_candidates_by_id.get(way_id) {
-                candidates.push(candidate.to_cand());
+                candidates.push(candidate.clone());
             }
         }
 
@@ -804,28 +744,7 @@ pub fn compare(
                     continue;
                 }
 
-                candidates.push(candidate.to_cand());
-            }
-        }
-
-        for &index in indexes {
-            if multiple.contains(&index) || building_states[index] != "missing" {
-                continue;
-            }
-
-            if let Some(id) = permanent_ids[index].as_ref()
-                && overrides.deleted.contains(id)
-            {
-                continue;
-            }
-
-            if let Some(area) = footprint_areas[index] {
-                candidates.push(Cand {
-                    kind: CandKind::New { index },
-                    area,
-                    key: permanent_ids[index].clone().unwrap_or_else(|| index.to_string()),
-                    housenumber: None,
-                });
+                candidates.push(candidate.clone());
             }
         }
 
@@ -836,8 +755,6 @@ pub fn compare(
             &addresses,
             candidates,
             &mut address_state,
-            &overrides.placed,
-            overrides.existing_only,
             &permanent_ids,
         );
     }
@@ -885,7 +802,7 @@ pub fn compare(
                 continue;
             }
 
-            candidates.push(osm_candidate(&candidate.feature, candidate.polygon.unsigned_area()).to_cand());
+            candidates.push(osm_candidate(&candidate.feature, candidate.polygon.unsigned_area()));
         }
 
         let addresses = vec![(index, address)];
@@ -895,8 +812,6 @@ pub fn compare(
             &addresses,
             candidates,
             &mut address_state,
-            &overrides.placed,
-            overrides.existing_only,
             &permanent_ids,
         );
     }

@@ -26,18 +26,6 @@ fn main() {
 
     println!("** {} v{} ({})\n", PROG_NAME, VERSION, BUILD_HASH);
 
-    if let Some(cell) = params.adjust() {
-        let municipality = selected_municipality(&params);
-        let output = review::adjust(municipality, params.cache_dir(), cell)
-            .unwrap_or_else(|error| fatal_exit("Address adjustment failed", error));
-
-        println!(
-            "Adjustment for {cell}: {} kept buildings, {} removed, {} addresses kept on buildings, {} address fixes",
-            output.kept, output.removed, output.placed, output.address_fixes
-        );
-        return;
-    }
-
     if params.review() {
         let municipality = selected_municipality(&params);
 
@@ -137,13 +125,12 @@ fn print_review_output(output: &review::ReviewOutput) {
     println!("Addresses shared (duplicate): {}", counts.address_duplicate);
     println!("Address fixes on existing OSM ways: {}", output.address_fixes);
 
-    let buildings: usize = output.cells.iter().map(|cell| cell.buildings).sum();
     let addresses: usize = output.cells.iter().map(|cell| cell.addresses).sum();
     let first = output.cells.first().map_or("-", |cell| cell.number.as_str());
     let last = output.cells.last().map_or("-", |cell| cell.number.as_str());
 
     println!(
-        "Review packages: {} cells ({first} .. {last}), {buildings} buildings, {addresses} addresses",
+        "Review packages: {} cells ({first} .. {last}), {addresses} addresses",
         output.cells.len()
     );
 }

@@ -22,7 +22,6 @@ Run without options to start the web UI.
 Modes:
   --fetch                 Fetch and cache data, print input counts
   --review                Run the full review pipeline
-  --adjust <cell>         Recompute addresses for one cell
 
 Options:
   -h, --help              Show this help
@@ -52,8 +51,6 @@ pub struct Parameters {
     listen_all: bool,
     /// Run the full ingest and review pipeline.
     review: bool,
-    /// Recompute addresses for one reviewed grid cell.
-    adjust: Option<String>,
     /// Allow replacing existing review output.
     overwrite: bool,
     /// Run ingest only and print the result counts.
@@ -77,7 +74,6 @@ impl Default for Parameters {
             cache_max_age: Duration::from_secs(DEFAULT_CACHE_MAX_AGE_DAYS * 86_400),
             listen_all: false,
             review: false,
-            adjust: None,
             overwrite: false,
             fetch: false,
             municipality: None,
@@ -111,10 +107,6 @@ impl Parameters {
 
     pub fn review(&self) -> bool {
         self.review
-    }
-
-    pub fn adjust(&self) -> Option<&str> {
-        self.adjust.as_deref()
     }
 
     pub fn overwrite(&self) -> bool {
@@ -185,12 +177,6 @@ pub fn parse_args(raw_args: &[String]) -> Result<Parameters, InvalidArgError> {
                 params.municipality = Some(value.clone());
             }
             "--review" => params.review = true,
-            "--adjust" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| InvalidArgError::new("The --adjust option requires a cell"))?;
-                params.adjust = Some(value.clone());
-            }
             "--overwrite" => params.overwrite = true,
             "--fetch" => params.fetch = true,
             "--osm-user" => {
@@ -221,13 +207,13 @@ pub fn parse_args(raw_args: &[String]) -> Result<Parameters, InvalidArgError> {
         return Ok(params);
     }
 
-    let modes = [params.fetch, params.review, params.adjust.is_some()]
+    let modes = [params.fetch, params.review]
         .into_iter()
         .filter(|enabled| *enabled)
         .count();
 
     if modes > 1 {
-        return Err(InvalidArgError::new("Use only one of --fetch, --review, or --adjust"));
+        return Err(InvalidArgError::new("Use only one of --fetch or --review"));
     }
 
     let stats = [&params.osm_user, &params.stats_url, &params.stats_token]

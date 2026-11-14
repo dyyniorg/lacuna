@@ -54,7 +54,7 @@ pub(super) fn official_housenumber(properties: &Value) -> Option<String> {
 }
 
 // Key of an address, normalized number and street.
-pub fn address_key(housenumber: &str, street: &str) -> String {
+fn address_key(housenumber: &str, street: &str) -> String {
     format!("{} {}", normalize(housenumber), normalize(street))
 }
 
@@ -88,17 +88,12 @@ pub(super) fn title_case(text: &str) -> String {
     result
 }
 
-// One address assignment candidate: an existing OSM building or a
-// missing official building that will be added from buildings.osm.
-pub(super) enum CandKind {
-    Osm { way_id: String, street: Option<String> },
-    New { index: usize },
-}
-
+// One address assignment candidate, an existing OSM building.
+#[derive(Clone)]
 pub(super) struct Cand {
-    pub(super) kind: CandKind,
+    pub(super) way_id: String,
+    pub(super) street: Option<String>,
     pub(super) area: f64,
-    pub(super) key: String,
     pub(super) housenumber: Option<String>,
 }
 
@@ -135,15 +130,13 @@ fn set_address_with_info(result_features: &mut [Value], index: usize, state: &st
 }
 
 // Assigns the official addresses of one parcel (or one loose building) to
-// candidates: an address already present wins, otherwise the largest
-// candidate without address information receives it.
+// existing OSM buildings: an address already present wins, otherwise the
+// largest building without address information receives it.
 pub(super) fn assign_addresses(
     result_features: &mut [Value],
     addresses: &[(usize, &AddressInfo)],
     candidates: Vec<Cand>,
     state: &mut AddressState,
-    placed: &HashSet<String>,
-    existing_only: bool,
     permanent_ids: &[Option<String>],
 ) {
     let mut used = vec![false; candidates.len()];
@@ -151,14 +144,6 @@ pub(super) fn assign_addresses(
         // NOTE: one address string must not be attached twice, several official
         // records can share one address
         let address_key = address_key(&address.housenumber, &address.street);
-
-        // check: a kept building already carries this address (if yes, leave it alone)
-        if placed.contains(&address_key) {
-            state.counts.matched += 1;
-            set_address_with_info(result_features, *owner, "matched", None);
-
-            continue;
-        }
 
         // NOTE: matching does not consume a candidate: several official records
         // can share one address, and the address only needs to exist once
@@ -170,12 +155,10 @@ pub(super) fn assign_addresses(
         });
 
         if let Some(candidate) = match_candidate {
-            let street_equal = match &candidate.kind {
-                CandKind::Osm { street, .. } => street
-                    .as_ref()
-                    .map(|street| normalize(street) == normalize(&address.street)),
-                CandKind::New { .. } => None,
-            };
+            let street_equal = candidate
+                .street
+                .as_ref()
+                .map(|street| normalize(street) == normalize(&address.street));
 
             state.counts.matched += 1;
             set_address_with_info(result_features, *owner, "matched", street_equal);
@@ -194,51 +177,29 @@ pub(super) fn assign_addresses(
             .iter()
             .enumerate()
             .filter(|(index, candidate)| {
-                !used[*index]
-                    && candidate.housenumber.is_none()
-                    && match &candidate.kind {
-                        CandKind::Osm { way_id, .. } => !state.attached_ways.contains(way_id),
-                        CandKind::New { .. } => !existing_only,
-                    }
+                !used[*index] && candidate.housenumber.is_none() && !state.attached_ways.contains(&candidate.way_id)
             })
-            .max_by(|(_, left), (_, right)| left.area.total_cmp(&right.area).then_with(|| right.key.cmp(&left.key)))
+            .max_by(|(_, left), (_, right)| {
+                left.area
+                    .total_cmp(&right.area)
+                    .then_with(|| right.way_id.cmp(&left.way_id))
+            })
             .map(|(index, _)| index);
 
         match best {
             Some(index) => {
                 used[index] = true;
 
-                match &candidates[index].kind {
-                    CandKind::Osm { way_id, .. } => {
-                        state.attached_ways.insert(way_id.clone());
-                        state.fixes.push(AddressFix {
-                            way_id: way_id.clone(),
-                            housenumber: address.housenumber.clone(),
-                            street: address.street.clone(),
-                            postcode: address.postcode.clone(),
-                            city: address.city.clone(),
-                            owner: permanent_ids[*owner].clone(),
-                        });
-                    }
-                    CandKind::New { index } => {
-                        let properties = result_features[*index]["properties"]
-                            .as_object_mut()
-                            .expect("missing properties");
-
-                        if let Some(suggested) = properties.get_mut("suggested_tags").and_then(Value::as_object_mut) {
-                            for (key, value) in [
-                                ("addr:housenumber", &address.housenumber),
-                                ("addr:street", &address.street),
-                                ("addr:postcode", &address.postcode),
-                                ("addr:city", &address.city),
-                            ] {
-                                if !value.is_empty() {
-                                    suggested.insert(key.to_string(), json!(value));
-                                }
-                            }
-                        }
-                    }
-                }
+                let candidate = &candidates[index];
+                state.attached_ways.insert(candidate.way_id.clone());
+                state.fixes.push(AddressFix {
+                    way_id: candidate.way_id.clone(),
+                    housenumber: address.housenumber.clone(),
+                    street: address.street.clone(),
+                    postcode: address.postcode.clone(),
+                    city: address.city.clone(),
+                    owner: permanent_ids[*owner].clone(),
+                });
 
                 state.attached.insert(address_key);
 

@@ -113,9 +113,7 @@ async function loadConfig() {
         revealRound = true
         applySession()
     })
-    $("adjust").addEventListener("click", startAdjust)
-    $("show-completed").addEventListener("change", renderCells)
-    document.addEventListener("click", onDocumentClick)
+    $("show-completed").addEventListener("change", renderCells)    document.addEventListener("click", onDocumentClick)
 
     await pollStatus()
 
@@ -135,9 +133,7 @@ async function onMunicipalityChange() {
     session = null
     $("round").hidden = true
     $("first-review").hidden = true
-    $("adjust-details").hidden = true
     $("cells").innerHTML = ""
-    $("adjust-cell").innerHTML = ""
     $("cache").innerHTML = ""
 
     setError()
@@ -209,16 +205,14 @@ function applySession() {
     const hasCells = session.cells.length > 0
 
     if (hasCells && !revealRound) {
-        const reviewed = session.cells.filter((cell) => cell.buildings).length
         const done = session.cells.filter((cell) => cell.addresses).length
         const roundLabel = /^\d+$/.test(session.round_id)
             ? new Date(Number(session.round_id) * 1000).toLocaleString()
             : session.round_id
         $("round-summary").textContent =
-            `Existing round ${roundLabel}: ${reviewed}/${session.cells.length} building cells reviewed, ${done}/${session.cells.length} address cells done.`
+            `Existing round ${roundLabel}: ${done}/${session.cells.length} address cells done.`
         $("round").hidden = false
         $("first-review").hidden = true
-        $("adjust-details").hidden = true
         $("run").textContent = "Start new round"
 
         return
@@ -234,11 +228,11 @@ function rowClass(cell) {
         return "row-done"
     }
 
-    if (cell.skipped || cell.addresses_empty) {
+    if (cell.addresses_empty) {
         return "row-special"
     }
 
-    return cell.buildings ? "row-ready" : ""
+    return "row-ready"
 }
 
 function cellTable(cells, action) {
@@ -248,7 +242,6 @@ function cellTable(cells, action) {
                 <thead>
                     <tr>
                         <th>Cell</th>
-                        <th>Buildings</th>
                         <th>Addresses</th>
                         <th>Copy</th>
                         <th>Action</th>
@@ -260,11 +253,9 @@ function cellTable(cells, action) {
                             (cell) => `
                         <tr class="${rowClass(cell)}">
                             <td><code>${escapeHtml(cell.number)}</code></td>
-                            <td>${cell.skipped ? "Skipped" : cell.buildings ? "Reviewed" : "Pending"}</td>
                             <td>${cell.addresses_empty ? "None" : cell.addresses ? "Done" : "Pending"}</td>
                             <td>
                                 ${copyButton(cell.download_url, "OSM URL")}
-                                ${cell.skipped ? "" : copyButton(cell.buildings_path, "buildings.osm")}
                                 ${cell.addresses_empty ? "" : copyButton(cell.addresses_path, "addresses.osm")}
                             </td>
                             <td>${action(cell)}</td>
@@ -292,31 +283,8 @@ function renderCells() {
             return "Done"
         }
 
-        if (cell.buildings || cell.skipped) {
-            return `<button class="mark-done" data-cell="${escapeHtml(cell.number)}">Mark as done</button>`
-        }
-
-        return "<span>Run adjust first</span>"
+        return `<button class="mark-done" data-cell="${escapeHtml(cell.number)}">Mark as done</button>`
     })
-
-    const adjustable = session.cells.filter((cell) => !cell.skipped && !cell.buildings)
-    const current = $("adjust-cell").value
-
-    $("adjust-cell").innerHTML = adjustable
-        .map(
-            (cell) =>
-                `<option value="${escapeHtml(cell.number)}">${escapeHtml(cell.number)}</option>`
-        )
-        .join("")
-    $("adjust").disabled = adjustable.length === 0
-
-    if (current && adjustable.some((cell) => cell.number === current)) {
-        $("adjust-cell").value = current
-    }
-}
-
-function hasAdjustableCells() {
-    return Boolean(session && session.cells.some((cell) => !cell.skipped && !cell.buildings))
 }
 
 async function startRun(overwrite) {
@@ -345,25 +313,6 @@ async function startRun(overwrite) {
         }
 
         setError(error.error || "Run failed.")
-    }
-}
-
-async function startAdjust() {
-    const cell = $("adjust-cell").value
-
-    if (!selected || !cell) {
-        setError("Select a municipality and a cell.")
-        return
-    }
-
-    setError()
-
-    try {
-        await post("/api/adjust", { municipality: selected, cell })
-        revealRound = true
-        startPolling()
-    } catch (error) {
-        setError(error.error || "Adjust failed.")
     }
 }
 
@@ -421,35 +370,18 @@ function renderStatus() {
         const text =
             `${escapeHtml(progress.stage || "Working")}: ${escapeHtml(progress.message || "")}` +
             (percent === null || percent === undefined ? "" : ` (${percent}%)`)
-        const adjusting = progress.stage === "Adjust"
 
-        $("status").innerHTML = adjusting ? "" : `<p>${text}</p>`
-        $("adjust-status").innerHTML = adjusting ? `<p>${text}</p>` : ""
-        $("adjust-status").hidden = !adjusting
+        $("status").innerHTML = `<p>${text}</p>`
         $("run").disabled = true
-        $("adjust").disabled = true
     } else {
         $("status").innerHTML = ""
-        $("adjust-status").hidden = true
         $("run").disabled = !selected
-        $("adjust").disabled = !hasAdjustableCells()
     }
 
     if (pStatus.error && pStatus.error_municipality === selected) {
         setError(pStatus.error)
     } else {
         setError()
-    }
-
-    if (pStatus.last_adjust && pStatus.last_adjust.municipality === selected) {
-        const adjust = pStatus.last_adjust
-        $("adjust-details").innerHTML = `
-            <p>Cell <code>${escapeHtml(adjust.cell)}</code>: ${adjust.kept} kept buildings, ${adjust.removed} removed, ${adjust.placed} addresses kept on buildings, ${adjust.address_fixes} address fixes.</p>
-            <p>Open the cell's <code>addresses.osm</code> path in JOSM for the address review.</p>
-        `
-        $("adjust-details").hidden = false
-    } else {
-        $("adjust-details").hidden = true
     }
 }
 

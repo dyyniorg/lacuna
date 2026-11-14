@@ -37,7 +37,6 @@ pub fn serve(params: Parameters) -> Result<(), String> {
         progress: None,
         error: None,
         error_municipality: None,
-        last_adjust: None,
     }));
 
     println!("Listening on http://{}", params.listen());
@@ -61,7 +60,6 @@ struct AppState {
     progress: Option<ProgressView>,
     error: Option<String>,
     error_municipality: Option<&'static str>,
-    last_adjust: Option<AdjustView>,
 }
 
 fn lock(state: &Arc<Mutex<AppState>>) -> MutexGuard<'_, AppState> {
@@ -79,16 +77,6 @@ struct ProgressView {
     stage: String,
     message: String,
     percent: Option<u8>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct AdjustView {
-    municipality: &'static str,
-    cell: String,
-    kept: usize,
-    removed: usize,
-    placed: usize,
-    address_fixes: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -129,11 +117,8 @@ struct SessionView {
 #[derive(Serialize)]
 struct CellInfo {
     number: String,
-    buildings: bool,
     addresses: bool,
     addresses_empty: bool,
-    skipped: bool,
-    buildings_path: String,
     addresses_path: String,
     download_url: String,
 }
@@ -144,7 +129,6 @@ struct StatusView {
     progress: Option<ProgressView>,
     error: Option<String>,
     error_municipality: Option<&'static str>,
-    last_adjust: Option<AdjustView>,
 }
 
 #[derive(Deserialize)]
@@ -236,7 +220,6 @@ fn handle(mut request: Request, state: Arc<Mutex<AppState>>) -> Result<(), Strin
     } else if is_post {
         match path {
             "/api/run" => unwrap_response(start_run(&state, &body)),
-            "/api/adjust" => unwrap_response(start_adjust(&state, &body)),
             "/api/cells/done" => unwrap_response(mark_done(&state, &body)),
             _ => HttpResponse::text(404, "Not found"),
         }
@@ -356,7 +339,6 @@ fn status_response(state: &Arc<Mutex<AppState>>) -> HttpResponse {
         progress: guard.progress.clone(),
         error: guard.error.clone(),
         error_municipality: guard.error_municipality,
-        last_adjust: guard.last_adjust.clone(),
     };
 
     drop(guard);
@@ -387,7 +369,6 @@ fn begin_job(state: &Arc<Mutex<AppState>>, stage: &str, message: String) -> Resu
     });
     guard.error = None;
     guard.error_municipality = None;
-    guard.last_adjust = None;
 
     Ok(guard.params.clone())
 }
@@ -500,7 +481,7 @@ fn do_run(
         .with_reporter(reporter);
     let data = client.fetch_all(municipality).map_err(|error| error.to_string())?;
 
-    set_progress(state, "Review", "Comparing buildings");
+    set_progress(state, "Review", "Matching addresses");
 
     let output = review::run(&data, municipality, params.cache_dir(), overwrite).map_err(|error| error.to_string())?;
 
@@ -515,52 +496,6 @@ fn do_run(
     }
 
     Ok(output)
-}
-
-fn start_adjust(state: &Arc<Mutex<AppState>>, body: &str) -> Result<HttpResponse, HttpResponse> {
-    let request: CellRequest = parse_request(body)?;
-    let municipality = request_municipality(&request.municipality)?;
-    let params = begin_job(
-        state,
-        "Adjust",
-        format!("Recomputing addresses for {cell}", cell = request.cell),
-    )?;
-
-    let job_state = Arc::clone(state);
-    let cell = request.cell.clone();
-
-    thread::spawn(move || {
-        let result = run_job(|| do_adjust(&params, municipality, &cell));
-
-        finish_job(&job_state, municipality, result, |guard, adjust| {
-            guard.progress = Some(ProgressView {
-                stage: "Adjust".to_string(),
-                message: format!("{cell} adjusted", cell = adjust.cell),
-                percent: None,
-            });
-            guard.last_adjust = Some(adjust);
-        });
-    });
-
-    Ok(HttpResponse::json(202, &json!({ "started": true })))
-}
-
-fn do_adjust(params: &Parameters, municipality: &'static Municipality, cell: &str) -> Result<AdjustView, String> {
-    let output = review::adjust(municipality, params.cache_dir(), cell).map_err(|error| error.to_string())?;
-    let _guard = progress_lock();
-    let mut progress = load_or_create_progress(params, municipality)?;
-
-    progress.set_buildings(cell)?;
-    progress::save(&progress::path(params.cache_dir(), municipality), &progress)?;
-
-    Ok(AdjustView {
-        municipality: municipality.code,
-        cell: cell.to_string(),
-        kept: output.kept,
-        removed: output.removed,
-        placed: output.placed,
-        address_fixes: output.address_fixes,
-    })
 }
 
 fn mark_done(state: &Arc<Mutex<AppState>>, body: &str) -> Result<HttpResponse, HttpResponse> {
@@ -638,14 +573,6 @@ fn load_or_create_progress(params: &Parameters, municipality: &Municipality) -> 
     let before = progress.cells.clone();
     progress.sync_cells(&cells);
 
-    for cell in &cells {
-        if let Some(entry) = progress.cells.get_mut(cell) {
-            entry.skipped = state
-                .as_ref()
-                .is_some_and(|state| !state.missing_by_cell.contains_key(cell));
-        }
-    }
-
     if round_changed || progress.cells != before || !path.exists() {
         progress::save(&path, &progress)?;
     }
@@ -680,11 +607,8 @@ fn cell_info(params: &Parameters, municipality: &Municipality, cell: &str, progr
 
     CellInfo {
         number: cell.to_string(),
-        buildings: state.buildings,
         addresses: state.addresses,
         addresses_empty,
-        skipped: state.skipped,
-        buildings_path: absolute_path(&dir.join("buildings.osm")),
         addresses_path: absolute_path(&addresses_path),
         download_url,
     }
@@ -737,7 +661,6 @@ fn absolute_path(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use std::fs;
     use std::path::Path;
 
@@ -748,7 +671,6 @@ mod tests {
     fn write_state(path: &Path, round_id: &str) {
         let state = review::ReviewState {
             round_id: round_id.to_string(),
-            missing_by_cell: BTreeMap::from([("00_00".to_string(), vec!["A".to_string()])]),
         };
 
         fs::write(path, serde_json::to_string(&state).unwrap()).unwrap();
@@ -778,7 +700,6 @@ mod tests {
             progress: None,
             error: None,
             error_municipality: None,
-            last_adjust: None,
         }));
 
         let response = session_response(&state, "municipality=291");
@@ -807,17 +728,17 @@ mod tests {
         let mut progress = load_or_create_progress(&params, municipality).unwrap();
         assert_eq!(progress.round_id, "1000");
 
-        progress.set_buildings(cell).unwrap();
+        progress.set_addresses(cell).unwrap();
         progress::save(&progress::path(params.cache_dir(), municipality), &progress).unwrap();
 
         let progress = load_or_create_progress(&params, municipality).unwrap();
-        assert!(progress.cells[cell].buildings);
+        assert!(progress.cells[cell].addresses);
 
         write_state(&state_path, "2000");
 
         let progress = load_or_create_progress(&params, municipality).unwrap();
         assert_eq!(progress.round_id, "2000");
-        assert!(progress.cells[cell].buildings);
+        assert!(progress.cells[cell].addresses);
     }
 
     #[test]

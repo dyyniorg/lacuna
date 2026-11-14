@@ -93,10 +93,6 @@
         box-shadow: 0 1px 0 currentColor;
     }
 
-    #adjust-controls {
-        padding-bottom: 5em;
-    }
-
     #cache-toggle {
         cursor: pointer;
     }
@@ -127,38 +123,20 @@
 
     <section id="first-review" hidden>
         <h2>Review</h2>
-        <p>Review each cell's buildings, adjust the addresses, and save the modified file. Cells marked "skipped" don't contain any building-related changes, proceed directly to reviewing their addresses.</p>
+        <p>Review each cell's address proposals in JOSM, apply them to the OSM data, and mark the cell done.</p>
         <ol>
             <li>Copy the cell's OSM URL from the table and paste it into JOSM.</li>
-            <li>Open the cell's <code>buildings.osm</code> layer in JOSM.</li>
-            <li>Review the new buildings. Remove <code>lacuna:review</code> when checked, but not <code>lacuna:ref</code>.</li>
-            <li>Save <code>buildings.osm</code> back to the same path.</li>
-        </ol>
-        <p>Once the <code>buildings.osm</code> is reviewed, proceed to the <code>addresses.osm</code> layer.</p>
-        <ol>
+            <li>Open the cell's <code>addresses.osm</code> layer in JOSM.</li>
             <li>Review the address proposals.</li>
-            <li>Merge the reviewed <code>buildings.osm</code> layer into the OSM layer.</li>
-            <li>Make the OSM layer the active layer and run the <code>apply_addresses.js</code> script that migrates the <code>addr:*</code> tags from the custom layer to the OSM layer.</li>
-            <li>Make sure there's no leftover <code>lacuna:*</code> tags, then upload the changes to OSM.</li>
+            <li>Make the downloaded OSM layer active and run the <code>apply_addresses.js</code> script to copy the <code>addr:*</code> tags from the review layer to the matching OSM buildings.</li>
+            <li>Make sure there are no leftover <code>lacuna:*</code> tags, then upload the changes to OSM.</li>
         </ol>
-        <p>Changeset source:</p>
-        <ul>
-            <li>Only addresses: <code>Ryhti (Syke); CC BY 4.0</code></li>
-            <li>Addresses and buildings: <code>MML Maastotietokanta; Ryhti (Syke); CC BY 4.0</code></li>
-        </ul>
+        <p>Changeset source: <code>Ryhti (Syke); CC BY 4.0</code></p>
         <label>
             <input type="checkbox" id="show-completed">
             Show completed cells
         </label>
         <div id="cells"></div>
-        <h3>Adjust addresses</h3>
-        <p>Select a cell you have reviewed and saved in JOSM.</p>
-        <div id="adjust-controls">
-            <select id="adjust-cell"></select>
-            <button id="adjust">Run adjust</button>
-            <div id="adjust-status" hidden></div>
-            <div id="adjust-details" hidden></div>
-        </div>
     </section>
 </main>
 <script src="/index.js"></script>

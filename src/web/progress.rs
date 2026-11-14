@@ -12,11 +12,7 @@ use crate::utils;
 /// Review status for one grid cell.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CellProgress {
-    pub buildings: bool,
     pub addresses: bool,
-    /// No building proposals exist for this cell.
-    #[serde(default)]
-    pub skipped: bool,
 }
 
 /// Progress for one full review round.
@@ -48,26 +44,11 @@ impl ReviewProgress {
         }
     }
 
-    pub fn set_buildings(&mut self, cell: &str) -> Result<(), String> {
-        let entry = self
-            .cells
-            .get_mut(cell)
-            .ok_or_else(|| format!("Unknown review cell: {cell}"))?;
-
-        entry.buildings = true;
-
-        Ok(())
-    }
-
     pub fn set_addresses(&mut self, cell: &str) -> Result<(), String> {
         let entry = self
             .cells
             .get_mut(cell)
             .ok_or_else(|| format!("Unknown review cell: {cell}"))?;
-
-        if !entry.buildings && !entry.skipped {
-            return Err("Buildings must be reviewed before marking addresses done".to_string());
-        }
 
         entry.addresses = true;
 
@@ -110,21 +91,17 @@ mod tests {
         let mut progress = ReviewProgress::new(&["01_00".to_string(), "02_00".to_string()]);
         assert!(!progress.round_id.is_empty());
         assert!(progress.cells.contains_key("01_00"));
-        assert!(!progress.cells["01_00"].buildings);
-        assert!(progress.set_addresses("01_00").is_err());
+        assert!(!progress.cells["01_00"].addresses);
 
-        progress.set_buildings("01_00").unwrap();
         progress.set_addresses("01_00").unwrap();
-        assert!(progress.cells["01_00"].buildings);
         assert!(progress.cells["01_00"].addresses);
 
         progress.sync_cells(&["02_00".to_string(), "03_00".to_string()]);
         assert!(progress.cells.contains_key("01_00"));
         assert!(progress.cells.contains_key("02_00"));
         assert!(progress.cells.contains_key("03_00"));
-        assert!(progress.cells["01_00"].buildings);
         assert!(progress.cells["01_00"].addresses);
-        assert!(!progress.cells["02_00"].buildings);
+        assert!(!progress.cells["02_00"].addresses);
 
         save(&path, &progress).unwrap();
 
@@ -132,19 +109,6 @@ mod tests {
         assert_eq!(loaded, progress);
 
         let text = fs::read_to_string(&path).unwrap();
-        assert!(text.contains("\"buildings\""));
         assert!(text.contains("\"addresses\""));
-        assert!(text.contains("\"skipped\""));
-    }
-
-    #[test]
-    fn skipped_cells_can_mark_addresses_done() {
-        let mut progress = ReviewProgress::new(&["01_00".to_string()]);
-        progress.cells.get_mut("01_00").unwrap().skipped = true;
-
-        progress.set_addresses("01_00").unwrap();
-
-        assert!(progress.cells["01_00"].addresses);
-        assert!(!progress.cells["01_00"].buildings);
     }
 }

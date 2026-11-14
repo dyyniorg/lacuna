@@ -8,7 +8,6 @@ use crate::ingest::{BBox, point_of_coordinates, point_of_feature};
 use crate::utils;
 
 use super::ReviewError;
-use super::diff::AddressFix;
 use super::osm_io::{self, ExistingWay};
 
 const GRID_ORIGIN_LON: f64 = 17.0;
@@ -29,9 +28,7 @@ pub struct Cell {
 #[derive(Clone, Debug)]
 pub struct CellPackage {
     pub number: String,
-    pub buildings: usize,
     pub addresses: usize,
-    pub missing_refs: Vec<String>,
 }
 
 pub fn cells_of(official: &Value, bbox: &BBox) -> Vec<Cell> {
@@ -84,7 +81,6 @@ pub fn cells_of(official: &Value, bbox: &BBox) -> Vec<Cell> {
 pub fn write_packages(
     review_dir: &Path,
     official: &Value,
-    result: &Value,
     address_missing: &[Value],
     bbox: &BBox,
 ) -> Result<Vec<CellPackage>, ReviewError> {
@@ -93,22 +89,13 @@ pub fn write_packages(
     let mut packages = Vec::new();
 
     for cell in &cells {
-        let missing: Vec<Value> = utils::features(result)
-            .iter()
-            .filter(|feature| {
-                feature["properties"]["match_state"] == "missing"
-                    && property_in_bbox(feature, "official_point", &cell.base_bbox)
-            })
-            .cloned()
-            .collect();
-
         let addresses_here: Vec<Value> = address_missing
             .iter()
             .filter(|feature| address_in_cell(feature, &cell.base_bbox))
             .cloned()
             .collect();
 
-        if missing.is_empty() && addresses_here.is_empty() {
+        if addresses_here.is_empty() {
             continue;
         }
 
@@ -130,30 +117,13 @@ pub fn write_packages(
         );
         std::fs::write(dir.join("osm_bbox.txt"), bbox_text)?;
 
-        if !missing.is_empty() {
-            osm_io::save_osm(&dir.join("buildings.osm"), &missing)?;
-        }
-
         let address_ways: Vec<ExistingWay> = addresses_here.iter().filter_map(existing_way_from_feature).collect();
 
         osm_io::save_existing_osm(&dir.join("addresses.osm"), &address_ways)?;
 
-        let mut missing_refs: Vec<String> = missing
-            .iter()
-            .filter_map(|feature| {
-                feature["properties"]["permanent_building_identifier"]
-                    .as_str()
-                    .map(str::to_string)
-            })
-            .collect();
-        missing_refs.sort();
-        missing_refs.dedup();
-
         packages.push(CellPackage {
             number: cell.number.clone(),
-            buildings: missing.len(),
-            addresses: addresses_here.len(),
-            missing_refs,
+            addresses: address_ways.len(),
         });
     }
 
@@ -229,17 +199,6 @@ pub fn address_in_bbox(feature: &Value, owner_point: Option<(f64, f64)>, bbox: &
     )
 }
 
-fn property_in_bbox(feature: &Value, key: &str, bbox: &BBox) -> bool {
-    let Some(point) = feature.get("properties").and_then(|properties| properties.get(key)) else {
-        return false;
-    };
-    let Some(array) = point.as_array() else {
-        return false;
-    };
-
-    array.len() == 2 && point_of_coordinates(point).is_some_and(|point| inside_bbox(point, bbox))
-}
-
 fn text_value<'a>(address: Option<&'a Value>, key: &str) -> &'a str {
     address
         .and_then(|address| address.get(key))
@@ -266,17 +225,6 @@ pub fn existing_way_from_feature(feature: &Value) -> Option<ExistingWay> {
         ("addr:street", text_value(address, "street")),
         ("addr:postcode", text_value(address, "postcode")),
         ("addr:city", text_value(address, "city")),
-    ]);
-
-    existing_way_with_tags(feature, tags)
-}
-
-pub fn existing_way_from_fix(feature: &Value, fix: &AddressFix) -> Option<ExistingWay> {
-    let tags = address_tags([
-        ("addr:housenumber", &fix.housenumber),
-        ("addr:street", &fix.street),
-        ("addr:postcode", &fix.postcode),
-        ("addr:city", &fix.city),
     ]);
 
     existing_way_with_tags(feature, tags)

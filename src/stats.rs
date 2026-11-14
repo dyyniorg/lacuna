@@ -102,11 +102,7 @@ pub fn load_produced(
         return Err("Statistics are missing for the current review round".to_string());
     }
 
-    stats
-        .cells
-        .get(cell)
-        .copied()
-        .ok_or_else(|| format!("Statistics are missing for cell {cell}"))
+    Ok(stats.cells.get(cell).copied().unwrap_or_default())
 }
 
 pub fn record_uploaded(
@@ -155,11 +151,10 @@ fn path(cache_dir: &Path, municipality: &Municipality) -> PathBuf {
 
 fn count_cell(cache_dir: &Path, municipality: &Municipality, cell: &str) -> Produced {
     let dir = cache_dir.join(municipality.slug()).join("review").join(cell);
-    let buildings = fs::read_to_string(dir.join("buildings.osm")).unwrap_or_default();
     let addresses = fs::read_to_string(dir.join("addresses.osm")).unwrap_or_default();
 
     Produced {
-        created: buildings.matches("<node ").count() + buildings.matches("<way ").count(),
+        created: 0,
         modified: addresses.matches("<way ").count(),
     }
 }
@@ -242,11 +237,6 @@ mod tests {
         let cell_dir = dir.join(MUNICIPALITY.slug()).join("review").join(cell);
         fs::create_dir_all(&cell_dir).unwrap();
         fs::write(
-            cell_dir.join("buildings.osm"),
-            "<osm><node id=\"-1\"/><node id=\"-2\"/><way id=\"-3\"/></osm>",
-        )
-        .unwrap();
-        fs::write(
             cell_dir.join("addresses.osm"),
             "<osm><node id=\"-1\"/><way id=\"100\"/></osm>",
         )
@@ -254,9 +244,7 @@ mod tests {
 
         let cells = vec![CellPackage {
             number: cell.to_string(),
-            buildings: 1,
             addresses: 1,
-            missing_refs: Vec::new(),
         }];
 
         write_produced(&dir, &MUNICIPALITY, "round", &cells).unwrap();
@@ -264,9 +252,25 @@ mod tests {
         assert_eq!(
             load_produced(&dir, &MUNICIPALITY, "round", cell).unwrap(),
             Produced {
-                created: 3,
+                created: 0,
                 modified: 1
             }
+        );
+    }
+
+    #[test]
+    fn missing_cell_stats_default_to_zero() {
+        let dir = TempDir::new("stats", "missing-cell");
+        let cells = vec![CellPackage {
+            number: "01_00".to_string(),
+            addresses: 0,
+        }];
+
+        write_produced(&dir, &MUNICIPALITY, "round", &cells).unwrap();
+
+        assert_eq!(
+            load_produced(&dir, &MUNICIPALITY, "round", "02_00").unwrap(),
+            Produced::default()
         );
     }
 
