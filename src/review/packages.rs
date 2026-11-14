@@ -118,13 +118,15 @@ pub fn write_packages(
 
         let bbox_text = format!(
             "bbox: {:.6},{:.6},{:.6},{:.6}\n\
-             https://www.openstreetmap.org/#map=15/{:.5}/{:.5}\n",
+             https://www.openstreetmap.org/?bbox={:.6},{:.6},{:.6},{:.6}\n",
             cell.cut_bbox.min_lat,
             cell.cut_bbox.min_lon,
             cell.cut_bbox.max_lat,
             cell.cut_bbox.max_lon,
-            (cell.cut_bbox.min_lat + cell.cut_bbox.max_lat) / 2.0,
-            (cell.cut_bbox.min_lon + cell.cut_bbox.max_lon) / 2.0
+            cell.cut_bbox.min_lon,
+            cell.cut_bbox.min_lat,
+            cell.cut_bbox.max_lon,
+            cell.cut_bbox.max_lat
         );
         std::fs::write(dir.join("osm_bbox.txt"), bbox_text)?;
 

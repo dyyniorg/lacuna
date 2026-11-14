@@ -846,7 +846,7 @@ mod tests {
         fs::write(
             cell_dir.join("osm_bbox.txt"),
             "bbox: 60.995000,24.975000,61.025000,25.025000\n\
-             https://www.openstreetmap.org/#map=15/61.01000/25.00000\n",
+             https://www.openstreetmap.org/?bbox=24.975000,60.995000,25.025000,61.025000\n",
         )
         .unwrap();
         fs::write(
@@ -860,7 +860,7 @@ mod tests {
 
         assert_eq!(
             info.download_url,
-            "https://www.openstreetmap.org/#map=15/61.01000/25.00000"
+            "https://www.openstreetmap.org/?bbox=24.975000,60.995000,25.025000,61.025000"
         );
         assert!(info.addresses_empty);
     }

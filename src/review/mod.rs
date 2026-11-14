@@ -599,7 +599,7 @@ mod tests {
         }
         let bbox_text = fs::read_to_string(cell_dir.join("osm_bbox.txt")).unwrap();
         assert!(bbox_text.contains("bbox: 60.955000,24.915000,61.025000,25.045000"));
-        assert!(bbox_text.contains("https://www.openstreetmap.org/#map=15/"));
+        assert!(bbox_text.contains("https://www.openstreetmap.org/?bbox=24.915000,60.955000,25.045000,61.025000"));
         assert!(!bbox_text.contains("josm --download="));
 
         let buildings = fs::read_to_string(cell_dir.join("buildings.osm")).unwrap();
