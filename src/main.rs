@@ -12,6 +12,7 @@ use utils::Parameters;
 
 pub const PROG_NAME: &str = env!("CARGO_PKG_NAME");
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const BUILD_HASH: &str = env!("BUILD_HASH");
 pub const REPO_URL: &str = env!("CARGO_PKG_REPOSITORY");
 
 fn main() {
@@ -23,7 +24,7 @@ fn main() {
         return;
     }
 
-    println!("** {} v{}\n", PROG_NAME, VERSION);
+    println!("** {} v{} ({})\n", PROG_NAME, VERSION, BUILD_HASH);
 
     if let Some(cell) = params.adjust() {
         let municipality = selected_municipality(&params);
