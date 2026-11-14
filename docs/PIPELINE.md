@@ -14,7 +14,7 @@ The matching has three stages:
 
 1. Join official building points to NLS footprints.
 2. Compare official building polygons with OSM building polygons.
-3. Assign official addresses to the resulting candidates.
+3. Assign official addresses to existing OSM buildings.
 
 ## Scope
 
@@ -160,15 +160,8 @@ For each parcel, address candidates are:
 
 - OSM buildings assigned to the parcel by center or overlap.
 - OSM buildings linked by the building match, even when their center is in another parcel.
-- New candidates from official buildings whose state is `missing`.
 
-A new candidate is excluded when:
-
-- It has the `multiple` address state.
-- Its official ID is in the deleted-building override list.
-- It has no usable footprint area.
-
-During adjustment, only existing OSM buildings receive addresses.
+Only existing OSM buildings receive addresses. Official buildings that are missing from OSM are not proposed as new geometries.
 
 Duplicate OSM way IDs are removed.
 
@@ -178,15 +171,13 @@ Addresses are sorted by their full address string.
 
 For each address:
 
-1. If the address key is already marked as placed, state `matched`.
-2. If a candidate has the same normalized housenumber, state `matched`.
-3. If the address key is already attached to another official building, state `duplicate`.
-4. Otherwise, choose the largest candidate that:
+1. If a candidate has the same normalized housenumber, state `matched`.
+2. If the address key is already attached to another official building, state `duplicate`.
+3. Otherwise, choose the largest candidate that:
    - has no housenumber,
    - has not been used in this assignment,
-   - is not an OSM way that already received an address,
-   - is not a new building when only existing OSM buildings are allowed.
-5. If areas are equal, the smaller candidate key wins.
+   - is not an OSM way that already received an address.
+4. If areas are equal, the smaller way ID wins.
 
 If no candidate is available:
 
@@ -197,7 +188,7 @@ If no candidate is available:
 
 | State | Meaning |
 | - | - |
-| `matched` | The address already exists on a candidate, or was already placed |
+| `matched` | The address already exists on a candidate |
 | `duplicate` | The same address was already assigned to another official building |
 | `missing` | The address was assigned to a building without an address, or no candidate exists |
 | `changed` | Candidates exist, but they already have different addresses |
@@ -227,3 +218,4 @@ Loose buildings can receive addresses only on existing OSM ways.
 - Official buildings without a usable NLS footprint are excluded.
 - Buildings with multiple official addresses are skipped.
 - A shared address is attached only once.
+- New building geometries are never proposed.

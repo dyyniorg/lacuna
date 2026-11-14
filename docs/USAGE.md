@@ -11,7 +11,7 @@ The web UI shows:
 - Cache status for the selected municipality
 - The current review round
 - Per-cell OSM download URLs and file paths
-- Building and address progress for each cell
+- Address progress for each cell
 - Overwrite confirmation
 
 ## Output layout
@@ -27,43 +27,30 @@ data/
     nls_footprints.json     # CACHE: building footprint polygons
     parcels.json            # CACHE: land parcels
     osm_buildings.json      # CACHE: OSM building ways extracted from the PBF
-    buildings.osm           # New building proposals for the *whole* municipality
     addresses.osm           # Address proposals for existing OSM ways for *whole* municipality
-    review_state.json       # Round ID and missing building refs per cell, used by the adjust step
+    review_state.json       # Round ID
     progress.json           # UI: per-cell review checkmarks
     review/
       <cell>/
-        buildings.osm       # New building proposals for *this* cell
         addresses.osm       # Address proposals for existing OSM ways in *this* cell
         osm_bbox.txt        # OSM download bbox and URL for JOSM for *this* cell
 ```
 
-When proposals exist, the top-level `buildings.osm` and `addresses.osm` contain all proposals for the whole municipality. The files under `review/<cell>` subdirectories essentially contain the same data split into smaller areas for easier handling. The `.osm` review package files use OSM XML (supported directly in JOSM).
+When address proposals exist, the top-level `addresses.osm` contains all proposals for the whole municipality. The files under `review/<cell>` subdirectories contain the same data split into smaller areas for easier handling. The `.osm` review package files use OSM XML (supported directly in JOSM).
 
-Review cells use a fixed national grid in WGS84 (EPSG:4326) with origin 17.0E, 57.0N and cell size 0.12 by 0.06 degrees. The grid generation is deterministic, and produces cell IDs of form `{row:03}_{col:03}`. Cells without any official building points are not included to the reviewal process.
+Review cells use a fixed national grid in WGS84 (EPSG:4326) with origin 17.0E, 57.0N and cell size 0.12 by 0.06 degrees. The grid generation is deterministic, and produces cell IDs of form `{row:03}_{col:03}`. Cells without any official building points are not included in the review process. Cells without address proposals are not written.
 
 ## JOSM workflow
 
 1. Run the review and select a cell in the web UI.
 2. Copy the OSM download URL for the cell, or use the URL in `osm_bbox.txt`. Paste the URL into JOSM to download the cell area.
-3. Open the cell `buildings.osm` layer. Use `josm/lacuna-review.mapcss` to highlight objects with the `lacuna:review` helper tag.
-4. In the `buildings.osm` layer, review and adjust geometries where needed. Save changes of the `buildings.osm` layer, and afterwards merge its data into the OSM layer.
-5. Click "Adjust" in the web UI. This recomputes the cell `addresses.osm` from the buildings you kept and marks the building step done for the cell.
-6. Open only the cell `addresses.osm` layer. Activate the downloaded OSM data layer and run `josm/apply_addresses.js`. The script migrates the address tags from the custom layer onto the OSM data layer.
-7. Review the changes and upload only the downloaded OSM data layer. Remember to remove all remaining `lacuna:*` tags before upload.
-8. Mark the cell done in the web UI. This marks the address step done for the cell.
+3. Open the cell `addresses.osm` layer. Use `josm/lacuna-review.mapcss` to highlight objects with the `lacuna:review` helper tag.
+4. Review the address proposals in the `addresses.osm` layer.
+5. Activate the downloaded OSM data layer and run `josm/apply_addresses.js`. The script copies the address tags from the review layer onto the matching OSM ways.
+6. Review the changes and upload only the downloaded OSM data layer. Remember to remove all remaining `lacuna:*` tags before upload.
+7. Mark the cell done in the web UI.
 
-Cells with no new building proposals have no `buildings.osm` file. The web UI shows them as `Skipped`, hides the buildings file button, and lets you proceed directly to the address review. The adjust step is not needed for those cells.
-
-Cells with no address fixes have no `addresses.osm` file. The web UI shows them as `None` and hides the addresses file button.
-
-### Adjust behavior
-
-The adjust step recomputes the cell `addresses.osm` and removes the `lacuna:ref` tags from the saved `buildings.osm`. It reads `buildings.osm` from disk, so save your edits first. Unsaved JOSM changes are ignored.
-
-- The tool compares the missing-building list in `review_state.json` with the `lacuna:ref` tags in the saved `buildings.osm`. Buildings that disappeared are treated as deleted and cannot receive addresses.
-- Address tags already present on kept buildings are treated as final and are not proposed again.
-- Only existing OSM ways can receive new address proposals. New buildings keep the address tags written into `buildings.osm` during the review run (the first run).
+Only existing OSM ways receive address proposals. The tool does not propose new building geometries.
 
 ## Overwrite behavior
 
